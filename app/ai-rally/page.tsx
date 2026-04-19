@@ -290,7 +290,8 @@ export default function AIRallyPage() {
 
   return (
     <PageTransition>
-      <div className="mx-auto max-w-screen-2xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="relative mx-auto max-w-screen-2xl overflow-hidden px-4 py-8 sm:px-6 lg:px-8">
+        <div className="net-bg fixed inset-0 -z-[1]" aria-hidden />
         <div className="mb-6">
           <p className="font-pixel text-[8px] tracking-[0.28em] text-[#6b5c3e]">
             ARENA
@@ -335,7 +336,7 @@ export default function AIRallyPage() {
           <div className="min-w-0 flex-1 flex flex-col gap-4">
             {conn === "connected" ? (
               <div className={`${placeholderGrid}`}>
-                <div className={panelShell}>
+                <div className={panelShell} style={{ backgroundColor: "#2d3a2e" }}>
                   <canvas
                     ref={cameraCanvasRef}
                     className="h-auto w-full max-h-[min(70vh,520px)] object-contain"
@@ -344,7 +345,7 @@ export default function AIRallyPage() {
                     YOU (CAM)
                   </div>
                 </div>
-                <div className={panelShell}>
+                <div className={panelShell} style={{ backgroundColor: "#2d3a2e" }}>
                   <canvas
                     ref={gameCanvasRef}
                     className="h-auto w-full max-h-[min(70vh,520px)] object-contain"

@@ -131,7 +131,8 @@ export default function DashboardPage() {
 
   return (
     <PageTransition>
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="relative mx-auto max-w-7xl overflow-hidden px-4 py-8 sm:px-6 lg:px-8">
+        <div className="net-bg fixed inset-0 -z-[1]" aria-hidden />
         <div className="mb-8">
           <p className="font-pixel text-[8px] tracking-[0.28em] text-[#6b5c3e]">
             TRAINING HUB

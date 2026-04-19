@@ -57,10 +57,16 @@ function GameboyFaceButton({
 export default function LandingPage() {
   return (
     <PageTransition>
-      <div className="relative flex min-h-[100dvh] flex-col bg-[#2d3a2e] px-3 py-4 sm:px-6 sm:py-8">
-        <div className="star-bg pointer-events-none fixed inset-0 -z-10 opacity-40" />
+      <div className="relative flex min-h-[100dvh] flex-col overflow-hidden px-3 py-4 sm:px-6 sm:py-8">
+        {/* Stack: solid green (z-0) → star (z-1) → net (z-5) → content (z-10) */}
+        <div
+          className="pointer-events-none fixed inset-0 z-0 bg-[#2d3a2e]"
+          aria-hidden
+        />
+        <div className="star-bg pointer-events-none fixed inset-0 z-[1] opacity-40" aria-hidden />
+        <div className="net-bg fixed inset-0 z-[5]" aria-hidden />
 
-        <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center justify-center gap-6 md:flex-row md:items-center md:justify-between md:gap-8 lg:gap-14 lg:pl-4 lg:pr-0">
+        <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col items-center justify-center gap-6 md:flex-row md:items-center md:justify-between md:gap-8 lg:gap-14 lg:pl-4 lg:pr-0">
           {/* Left: SVG logo + STROKE SENSEI — centered & proportional */}
           <motion.div
             initial={{ opacity: 0, x: -16 }}

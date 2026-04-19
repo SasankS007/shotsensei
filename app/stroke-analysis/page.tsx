@@ -418,6 +418,7 @@ export default function StrokeAnalysisPage() {
     <PageTransition>
       <div className="relative min-h-screen overflow-hidden px-4 py-8 sm:px-6 lg:px-8">
         <div className="star-bg fixed inset-0 -z-10" />
+        <div className="net-bg fixed inset-0 -z-[1]" aria-hidden />
         <div className="mx-auto max-w-7xl space-y-6">
           <div className="tama-card tama-card-green px-6 py-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
