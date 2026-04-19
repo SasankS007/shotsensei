@@ -23,8 +23,8 @@ class GameEngine:
     def update(self, stroke_state: str, *, net_event: bool = False,
                stroke_score: int = 0, weakest_metric: str = "",
                stroke_phase: str = "READY"):
-        self.state.update(stroke_state, net_event=net_event)
         self.state.stroke_score = stroke_score
+        self.state.update(stroke_state, net_event=net_event)
         self.state.weakest_metric = weakest_metric
         self.state.stroke_phase = stroke_phase
 

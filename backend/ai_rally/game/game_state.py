@@ -12,7 +12,9 @@ WIN_SCORE = 11
 BALL_SPEED_INIT = 6.0
 BALL_SPEED_INC = 0.3
 BALL_SPEED_CAP = 12.0
-AI_MISS_RATE = 0.05
+AI_MISS_BASE = 0.15        # baseline miss probability (was 0.05)
+AI_MISS_PER_RALLY = 0.015  # extra miss per rally point (caps at rally 10)
+AI_MISS_SCORE_MAX = 0.12   # extra miss from high-quality player strokes
 AI_SPEED = 5.0
 
 MARGIN_X = 16
@@ -125,11 +127,15 @@ class GameState:
         elif ai_cx > self.bx + 4:
             self.ai_x = max(self.ai_x - AI_SPEED, MARGIN_X)
 
-        # AI return
+        # AI return — miss rate scales with rally length and player stroke quality
         ai_paddle_y = MARGIN_TOP
         if self.bdy < 0 and self.by <= ai_paddle_y + PADDLE_H + BALL_R:
             if self.ai_x <= self.bx <= self.ai_x + PADDLE_W:
-                if random.random() > AI_MISS_RATE:
+                miss = AI_MISS_BASE + AI_MISS_PER_RALLY * min(self.rally, 10)
+                if self.stroke_score > 50:
+                    miss += AI_MISS_SCORE_MAX * (self.stroke_score - 50) / 50.0
+                miss = min(miss, 0.50)
+                if random.random() > miss:
                     self.bdy = self.ball_speed
                     self.bdx = random.uniform(-4.0, 4.0)
                     self.by = ai_paddle_y + PADDLE_H + BALL_R + 2

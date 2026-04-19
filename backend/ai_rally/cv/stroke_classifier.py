@@ -2,18 +2,23 @@
 Biomechanical stroke classifier: body-normalised ratios, 5-phase swing
 segmentation, kinetic-chain velocity, CONTACT-only scoring.
 
+The paddle arm is determined per-frame by cv_engine (whichever wrist is
+nearest the detected paddle).  All kinematics — velocity, angles, phase
+detection — run against that arm only.
+
+Stroke identification is rule-based (no ML dataset for FH/BH):
+  - Wrist x-displacement over the swing determines forehand vs backhand.
+  - Right arm: forehand = dx < 0, backhand = dx > 0 (mirrored camera).
+  - Left arm: forehand = dx > 0, backhand = dx < 0 (mirrored camera).
+
 Validation rules:
   - Full phase sequence BACKSWING → LOAD → CONTACT → FOLLOW_THROUGH
     must complete within 90 frames.
-  - Score at CONTACT ≥ 45 for a valid stroke.
-  - FOLLOW_THROUGH confirmed: wrist must decelerate for ≥ 6 consecutive
+  - Score at CONTACT >= 35 for a valid stroke.
+  - FOLLOW_THROUGH confirmed: wrist must decelerate for >= 3 consecutive
     frames after CONTACT before the stroke is emitted.
   - Stroke emitted once per swing; state resets to READY after emission.
-  - return_probability: score 45→0.5, score 100→1.0 (linear).
-
-Wrist x-direction (mirrored camera):
-  - Forehand: wrist x moves high→low (dx < 0)
-  - Backhand: wrist x moves low→high (dx > 0)
+  - return_probability: score 35->0.55, score 100->1.0 (linear).
 """
 
 from __future__ import annotations
@@ -29,10 +34,9 @@ import numpy as np
 
 from cv.pose_estimator import (
     BodyCalibration,
-    DOM_ELBOW,
-    DOM_SHOULDER,
-    DOM_WRIST,
     L_SHOULDER,
+    R_SHOULDER,
+    R_ARM,
     NOSE,
     ROLLING_BUFFER,
     joint_angle_deg,
@@ -40,8 +44,11 @@ from cv.pose_estimator import (
 )
 
 _SWING_WINDOW = 90           # max frames for a valid swing
-_FOLLOW_DECEL_FRAMES = 6     # consecutive decelerating frames required
-_MIN_SCORE = 45              # minimum score for a valid stroke
+_FOLLOW_DECEL_FRAMES = 3     # consecutive decelerating frames required
+_MIN_SCORE = 35              # minimum score for a valid stroke
+_BACKSWING_ENTRY_VEL = 0.06  # wrist velocity to start a swing
+_PEAK_VEL_THRESHOLD = 0.04   # velocity peak required for contact
+_BACKSWING_ABORT_FRAMES = 25 # frames before aborting a stalled backswing
 
 
 class Phase(str, Enum):
@@ -58,7 +65,7 @@ class FrameSample:
     elbow: Tuple[float, float]
     wrist: Tuple[float, float]
     hip_mid: Tuple[float, float]
-    l_shoulder: Tuple[float, float]
+    off_shoulder: Tuple[float, float]
     nose: Tuple[float, float]
     torso_cx: float
     elbow_angle: float
@@ -82,16 +89,19 @@ def _wrap_pi(a: float) -> float:
 
 
 def _return_probability(score: int) -> float:
-    """Map score 45→0.5 … 100→1.0 (linear).  Scores below 45 get 0.0."""
+    """Map score 35->0.55 ... 100->1.0 (linear).  Below 35 returns 0.0."""
     if score < _MIN_SCORE:
         return 0.0
-    return 0.5 + 0.5 * (score - 45) / 55.0
+    return 0.55 + 0.45 * (score - 35) / 65.0
 
 
 class StrokeClassifier:
     """
     Rolling 30-frame buffer, 30-frame calibration, CONTACT-only scoring,
     follow-through decel gate, return-probability roll.
+
+    The paddle arm is set per-frame via arm_indices parameter; all
+    kinematics track that arm exclusively.
     """
 
     def __init__(self):
@@ -102,6 +112,13 @@ class StrokeClassifier:
         self.state: str = "READY"
         self.wrist_speed: float = 0.0
 
+        # Active arm indices (updated each frame)
+        self._sh_idx: int = R_ARM[0]
+        self._el_idx: int = R_ARM[1]
+        self._wr_idx: int = R_ARM[2]
+        self._off_shoulder: int = L_SHOULDER
+        self._arm_is_right: bool = True
+
         # Swing bookkeeping
         self._swing_start_hip_x: Optional[float] = None
         self._backswing_wrist_v: List[float] = []
@@ -111,9 +128,9 @@ class StrokeClassifier:
         self._prev_theta: Optional[float] = None
 
         # Backhand path checks
-        self._l_shoulder_max_x: float = -1.0
+        self._off_shoulder_max_x: float = -1.0
         self._wrist_min_x_before_contact: float = 1.0
-        self._had_cross_l_shoulder_nose = False
+        self._had_cross_off_shoulder_nose = False
         self._had_wrist_cross_torso = False
 
         # Wrist x-displacement for mirrored-camera forehand/backhand
@@ -130,12 +147,12 @@ class StrokeClassifier:
         self._last_stroke: str = "READY"
         self._last_score: int = 0
         self._last_return_prob: float = 0.0
-        self._last_net_event: bool = False  # True when return-prob roll fails
+        self._last_net_event: bool = False
         self._last_metrics: Dict[str, float] = {}
         self._weakest_metric: str = ""
 
         self._contact_snapshot: Optional[Dict[str, Any]] = None
-        self._emitted = False  # stroke emitted once per swing
+        self._emitted = False
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -143,9 +160,16 @@ class StrokeClassifier:
         self,
         landmarks,
         paddle_center_norm: Optional[Tuple[float, float]] = None,
+        arm_indices: Optional[Tuple[int, int, int]] = None,
     ) -> str:
         if landmarks is None:
             return self.state
+
+        # Apply arm selection
+        if arm_indices is not None:
+            self._sh_idx, self._el_idx, self._wr_idx = arm_indices
+            self._arm_is_right = (self._sh_idx == R_ARM[0])
+            self._off_shoulder = L_SHOULDER if self._arm_is_right else R_SHOULDER
 
         if not self._cal.feed(landmarks):
             self._emit_pre_calib()
@@ -154,15 +178,17 @@ class StrokeClassifier:
         bl = self._cal.baseline
         fl = max(bl.forearm_len, 1e-6)
 
-        s = _xy(landmarks, DOM_SHOULDER)
-        e = _xy(landmarks, DOM_ELBOW)
-        w = _xy(landmarks, DOM_WRIST)
+        sh_idx, el_idx, wr_idx = self._sh_idx, self._el_idx, self._wr_idx
+
+        s = _xy(landmarks, sh_idx)
+        e = _xy(landmarks, el_idx)
+        w = _xy(landmarks, wr_idx)
         hip = hip_mid_xy(landmarks)
-        ls = _xy(landmarks, L_SHOULDER)
+        off_sh = _xy(landmarks, self._off_shoulder)
         nose = _xy(landmarks, NOSE)
         torso_cx = (landmarks[11].x + landmarks[12].x) / 2.0
 
-        elbow_ang = joint_angle_deg(landmarks, DOM_SHOULDER, DOM_ELBOW, DOM_WRIST)
+        elbow_ang = joint_angle_deg(landmarks, sh_idx, el_idx, wr_idx)
 
         if len(self._buf) >= 1 and self._buf[-1] is not None:
             ps = self._buf[-1]
@@ -178,7 +204,7 @@ class StrokeClassifier:
 
         sample = FrameSample(
             shoulder=s, elbow=e, wrist=w, hip_mid=hip,
-            l_shoulder=ls, nose=nose, torso_cx=torso_cx,
+            off_shoulder=off_sh, nose=nose, torso_cx=torso_cx,
             elbow_angle=elbow_ang,
             v_shoulder=vs, v_elbow=ve, v_wrist=vw,
             v_paddle_rot=v_rot, v_paddle=v_paddle,
@@ -192,12 +218,10 @@ class StrokeClassifier:
 
         self.wrist_speed = min(1.0, vw / 0.35)
 
-        # Phase FSM
         self._advance_phase(landmarks, sample, fl)
         if self.phase != Phase.READY:
             self._swing_frame_idx += 1
 
-        # 90-frame window enforcement
         if self._in_swing and self._swing_frame_idx > _SWING_WINDOW:
             self._reset_swing()
 
@@ -232,12 +256,12 @@ class StrokeClassifier:
     # ── Phase FSM ───────────────────────────────────────────────────────
 
     def _peak_detected(self) -> bool:
-        if self._swing_frame_idx < 5:
+        if self._swing_frame_idx < 4:
             return False
         if len(self._vel_history) < 3:
             return False
         vlist = list(self._vel_history)
-        return vlist[-2] >= vlist[-1] and vlist[-2] >= vlist[-3] and vlist[-2] > 0.08
+        return vlist[-2] >= vlist[-1] and vlist[-2] >= vlist[-3] and vlist[-2] > _PEAK_VEL_THRESHOLD
 
     def _fire_contact(self, lm, sample: FrameSample, fl: float) -> None:
         self.phase = Phase.CONTACT
@@ -260,12 +284,14 @@ class StrokeClassifier:
             assert p is not None
             hip_vx = sample.hip_mid[0] - p.hip_mid[0]
 
-        elbow_below = lm[DOM_ELBOW].y > lm[DOM_SHOULDER].y + 0.01
+        elbow_below = lm[self._el_idx].y > lm[self._sh_idx].y + 0.01
 
         if self.phase != Phase.READY:
-            self._l_shoulder_max_x = max(self._l_shoulder_max_x, lm[L_SHOULDER].x)
-            if lm[L_SHOULDER].x > lm[NOSE].x - 0.01:
-                self._had_cross_l_shoulder_nose = True
+            self._off_shoulder_max_x = max(
+                self._off_shoulder_max_x, lm[self._off_shoulder].x
+            )
+            if lm[self._off_shoulder].x > lm[NOSE].x - 0.01:
+                self._had_cross_off_shoulder_nose = True
             if sample.wrist[0] < sample.torso_cx:
                 self._had_wrist_cross_torso = True
             self._wrist_min_x_before_contact = min(
@@ -274,14 +300,14 @@ class StrokeClassifier:
 
         if self.phase == Phase.READY:
             self._backswing_wrist_v.clear()
-            if vw > 0.12 and not self._in_swing:
+            if vw > _BACKSWING_ENTRY_VEL and not self._in_swing:
                 self._swing_start_hip_x = sample.hip_mid[0]
                 self._backswing_start_wrist_x = sample.wrist[0]
                 self._in_swing = True
                 self.phase = Phase.BACKSWING
-                self._l_shoulder_max_x = lm[L_SHOULDER].x
+                self._off_shoulder_max_x = lm[self._off_shoulder].x
                 self._wrist_min_x_before_contact = sample.wrist[0]
-                self._had_cross_l_shoulder_nose = False
+                self._had_cross_off_shoulder_nose = False
                 self._had_wrist_cross_torso = False
 
         elif self.phase == Phase.BACKSWING:
@@ -291,9 +317,9 @@ class StrokeClassifier:
                 return
             if len(self._vel_history) >= 3:
                 decel = vw < list(self._vel_history)[-2]
-                if elbow_below and decel and abs(hip_vx) > 0.002:
+                if elbow_below and decel:
                     self.phase = Phase.LOAD
-            if vw < 0.03 and len(self._backswing_wrist_v) > 20:
+            if vw < 0.02 and len(self._backswing_wrist_v) > _BACKSWING_ABORT_FRAMES:
                 self._reset_swing()
 
         elif self.phase == Phase.LOAD:
@@ -301,11 +327,10 @@ class StrokeClassifier:
             if self._peak_detected():
                 self._fire_contact(lm, sample, fl)
                 return
-            if vw < 0.04 and len(self._backswing_wrist_v) > 8:
+            if vw < 0.03 and len(self._backswing_wrist_v) > 8:
                 self._reset_swing()
 
         elif self.phase == Phase.FOLLOW_THROUGH:
-            # Deceleration gate: 6 consecutive frames of wrist slowing
             if self._follow_prev_vw is not None and vw <= self._follow_prev_vw:
                 self._follow_decel_count += 1
             else:
@@ -315,8 +340,6 @@ class StrokeClassifier:
             if self._follow_decel_count >= _FOLLOW_DECEL_FRAMES and not self._emitted:
                 self._emit_stroke()
             elif vw < 0.03:
-                # Wrist stopped without enough decel frames — still emit
-                # if contact was scored, else just reset
                 if self._contact_scored and not self._emitted:
                     self._emit_stroke()
                 else:
@@ -335,8 +358,6 @@ class StrokeClassifier:
             self.state = "UNIDENTIFIABLE"
 
         self._emitted = True
-        # Hold state for one frame, then reset in _sync_game_state
-        # next cycle will see _emitted=True and reset.
 
     def _reset_swing(self) -> None:
         self.phase = Phase.READY
@@ -366,28 +387,30 @@ class StrokeClassifier:
         hip_ratio = delta_hip / sw
 
         def hip_score() -> float:
+            if hip_ratio < 0.15:
+                return max(0.3, hip_ratio / 0.15)
             if hip_ratio < 0.4:
-                return max(0.0, hip_ratio / 0.4)
+                return 1.0
             return min(1.0, (hip_ratio - 0.4) / 0.35)
 
         hip_s = hip_score()
 
         target_fh_x = sample.hip_mid[0] + fl * 0.8
         err_fh = abs(sample.wrist[0] - target_fh_x) / fl
-        contact_fh = 1.0 if err_fh <= 0.15 else max(0.0, 1.0 - (err_fh - 0.15) / 0.25)
+        contact_fh = 1.0 if err_fh <= 0.25 else max(0.0, 1.0 - (err_fh - 0.25) / 0.35)
 
         ideal_bh_x = sample.torso_cx - 0.45 * fl
         err_bh = abs(sample.wrist[0] - ideal_bh_x) / fl
-        bh_slot = 1.0 if err_bh <= 0.15 else max(0.0, 1.0 - (err_bh - 0.15) / 0.25)
+        bh_slot = 1.0 if err_bh <= 0.25 else max(0.0, 1.0 - (err_bh - 0.25) / 0.35)
         wrist_cross = 1.0 if self._had_wrist_cross_torso else 0.0
         contact_bh = 0.5 * bh_slot + 0.5 * wrist_cross
 
         ang = sample.elbow_angle
 
         def elbow_score() -> float:
-            if 160 <= ang <= 170:
+            if 140 <= ang <= 175:
                 return 1.0
-            return max(0.0, 1.0 - min(abs(ang - 160), abs(ang - 170)) / 25.0)
+            return max(0.0, 1.0 - min(abs(ang - 140), abs(ang - 175)) / 30.0)
 
         el_s = elbow_score()
 
@@ -397,34 +420,39 @@ class StrokeClassifier:
         )
         mean_bs = max(mean_bs, 1e-6)
         snap_ratio = sample.v_wrist / mean_bs
-        sn_s = min(1.0, snap_ratio / 1.5)
+        sn_s = min(1.0, snap_ratio / 1.3)
 
         fh_metrics = {"hip_rotation": hip_s, "contact_point": contact_fh, "elbow_angle": el_s, "wrist_snap": sn_s}
         fh_avg = float(np.mean(list(fh_metrics.values())))
 
-        shoulder_turn = 1.0 if self._had_cross_l_shoulder_nose else 0.0
+        shoulder_turn = 1.0 if self._had_cross_off_shoulder_nose else 0.0
         bh_metrics = {"hip_rotation": hip_s, "contact_point": contact_bh, "elbow_angle": el_s, "wrist_snap": 0.5 * sn_s + 0.5 * shoulder_turn}
         bh_avg = float(np.mean(list(bh_metrics.values())))
 
-        # Wrist x-displacement override for mirrored camera:
-        # dx < 0 → forehand, dx > 0 → backhand
+        # Wrist x-displacement: direction depends on which arm holds paddle
         dx = self._wrist_dx
-        dx_fh = dx < -0.01
-        dx_bh = dx > 0.01
+        if self._arm_is_right:
+            dx_fh = dx < -0.01
+            dx_bh = dx > 0.01
+        else:
+            dx_fh = dx > 0.01
+            dx_bh = dx < -0.01
 
-        if dx_fh and fh_avg >= 0.45:
+        threshold = 0.35
+
+        if dx_fh and fh_avg >= threshold:
             self._last_stroke = "FOREHAND"
             self._last_metrics = fh_metrics
             self._last_score = int(round(fh_avg * 100))
-        elif dx_bh and bh_avg >= 0.45:
+        elif dx_bh and bh_avg >= threshold:
             self._last_stroke = "BACKHAND"
             self._last_metrics = bh_metrics
             self._last_score = int(round(bh_avg * 100))
-        elif fh_avg >= 0.45 and fh_avg >= bh_avg:
+        elif fh_avg >= threshold and fh_avg >= bh_avg:
             self._last_stroke = "FOREHAND"
             self._last_metrics = fh_metrics
             self._last_score = int(round(fh_avg * 100))
-        elif bh_avg >= 0.45 and bh_avg > fh_avg:
+        elif bh_avg >= threshold and bh_avg > fh_avg:
             self._last_stroke = "BACKHAND"
             self._last_metrics = bh_metrics
             self._last_score = int(round(bh_avg * 100))
@@ -439,8 +467,6 @@ class StrokeClassifier:
 
     def _sync_game_state(self) -> None:
         if self._emitted and self.phase == Phase.FOLLOW_THROUGH:
-            # Already emitted — let the game read self.state for one tick,
-            # then reset next frame
             pass
         elif self.phase == Phase.READY:
             self.state = "READY"
@@ -475,7 +501,7 @@ class StrokeClassifier:
     @property
     def overlay_lines(self) -> Tuple[str, str]:
         if not self._cal.baseline.ready:
-            return ("Calibrating body…", "")
+            return ("Calibrating body...", "")
         if self._weakest_metric and self._last_metrics:
             wv = self._last_metrics.get(self._weakest_metric, 0.0)
             return (

@@ -21,10 +21,14 @@ L_ELBOW, R_ELBOW = 13, 14
 L_WRIST, R_WRIST = 15, 16
 L_HIP, R_HIP = 23, 24
 
-# Dominant (right) hitting arm — matches mirrored forehand/backhand UI
+# Dominant (right) hitting arm — default; cv_engine overrides per-frame
 DOM_SHOULDER = R_SHOULDER
 DOM_ELBOW = R_ELBOW
 DOM_WRIST = R_WRIST
+
+# Arm tuples for dynamic paddle-arm selection
+L_ARM = (L_SHOULDER, L_ELBOW, L_WRIST)  # (11, 13, 15)
+R_ARM = (R_SHOULDER, R_ELBOW, R_WRIST)  # (12, 14, 16)
 
 CALIBRATION_FRAMES = 30
 ROLLING_BUFFER = 30
