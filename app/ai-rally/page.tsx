@@ -285,7 +285,7 @@ export default function AIRallyPage() {
   }, []);
 
   const panelShell =
-    "relative overflow-hidden rounded-xl border-[2.5px] border-slate-800 bg-slate-900/5 shadow-[4px_4px_0_0_rgba(30,41,59,0.12)]";
+    "relative overflow-hidden pixel-border bg-slate-900/5 shadow-[5px_5px_0_0_#0284c7]";
   const placeholderGrid = "grid grid-cols-1 gap-3 md:grid-cols-2";
 
   return (
@@ -303,7 +303,7 @@ export default function AIRallyPage() {
             the point. Rallies tuned for every difficulty.
           </p>
 
-          <div className="mt-6 rounded-2xl border-[2.5px] border-slate-800 bg-gradient-to-br from-amber-50 to-lime-50/80 px-4 py-4 shadow-[4px_4px_0_0_rgba(30,41,59,0.12)] sm:px-6 sm:py-5">
+          <div className="mt-6 pixel-border bg-gradient-to-br from-amber-50 to-lime-50/80 px-4 py-4 shadow-[5px_5px_0_0_#ca8a04] sm:px-6 sm:py-5">
             <p className="font-pixel text-[8px] tracking-wide text-[#4a5d3a]">
               CPU DIFFICULTY — CHOOSE BEFORE YOU START
             </p>
@@ -317,7 +317,7 @@ export default function AIRallyPage() {
                   type="button"
                   onPointerDown={() => void playUiClick()}
                   onClick={() => pickDifficulty(lvl)}
-                  className={`min-w-[5.5rem] flex-1 rounded-xl border-[2px] border-slate-800 px-4 py-3 font-pixel text-[9px] capitalize transition-colors sm:min-w-[6.5rem] ${
+                  className={`min-w-[5.5rem] flex-1 pixel-border px-4 py-3 font-pixel text-[9px] capitalize transition-colors sm:min-w-[6.5rem] ${
                     difficulty === lvl
                       ? "bg-green-300 text-slate-900 shadow-[3px_3px_0_0_#15803d]"
                       : "bg-white/90 text-[#4a5d3a] hover:bg-amber-100"
@@ -340,7 +340,7 @@ export default function AIRallyPage() {
                     ref={cameraCanvasRef}
                     className="h-auto w-full max-h-[min(70vh,520px)] object-contain"
                   />
-                  <div className="pointer-events-none absolute left-2 top-2 rounded-lg border-[2px] border-slate-800 bg-white/90 px-2 py-1 font-pixel text-[7px] text-[#2e4a1e]">
+                  <div className="pointer-events-none absolute left-2 top-2 pixel-border bg-white/90 px-2 py-1 font-pixel text-[7px] text-[#2e4a1e]">
                     YOU (CAM)
                   </div>
                 </div>
@@ -352,7 +352,7 @@ export default function AIRallyPage() {
                   {gameState.hitWindow && (
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2 bg-yellow-400/60 animate-pulse" />
                   )}
-                  <div className="pointer-events-none absolute left-2 top-2 rounded-lg border-[2px] border-slate-800 bg-white/90 px-2 py-1 font-pixel text-[7px] text-[#2e4a1e]">
+                  <div className="pointer-events-none absolute left-2 top-2 pixel-border bg-white/90 px-2 py-1 font-pixel text-[7px] text-[#2e4a1e]">
                     COURT
                   </div>
                 </div>
@@ -443,7 +443,7 @@ export default function AIRallyPage() {
 
           {/* Stats rail */}
           <aside className="w-full shrink-0 space-y-3 lg:w-[min(100%,320px)]">
-            <Card className="tama-card tama-card-green border-[2.5px] border-slate-800 bg-white/90">
+            <Card className="tama-card tama-card-green pixel-border bg-white/90">
               <CardContent className="p-4">
                 <p className="mb-2 font-pixel text-[8px] text-[#6b5c3e]">SCORE</p>
                 <div className="flex items-center justify-center gap-5 text-center">
@@ -464,7 +464,7 @@ export default function AIRallyPage() {
               </CardContent>
             </Card>
 
-            <Card className="tama-card border-[2.5px] border-slate-800 bg-white/90">
+            <Card className="tama-card tama-card-blue pixel-border bg-white/90">
               <CardContent className="p-4">
                 <p className="mb-1 font-pixel text-[8px] text-[#6b5c3e]">RALLY</p>
                 <p className="font-vt323 text-[2rem] leading-none text-slate-800">
@@ -473,7 +473,7 @@ export default function AIRallyPage() {
               </CardContent>
             </Card>
 
-            <Card className="tama-card border-[2.5px] border-slate-800 bg-white/90">
+            <Card className="tama-card tama-card-orange pixel-border bg-white/90">
               <CardContent className="flex items-center gap-3 p-4">
                 <span
                   className={`relative flex h-2.5 w-2.5 ${
@@ -505,7 +505,7 @@ export default function AIRallyPage() {
               </CardContent>
             </Card>
 
-            <Card className="tama-card border-[2.5px] border-slate-800 bg-white/90">
+            <Card className="tama-card tama-card-pink pixel-border bg-white/90">
               <CardContent className="p-4">
                 <p className="mb-1 font-pixel text-[8px] text-[#6b5c3e]">
                   DIFFICULTY
@@ -520,7 +520,7 @@ export default function AIRallyPage() {
                       type="button"
                       onPointerDown={() => void playUiClick()}
                       onClick={() => pickDifficulty(lvl)}
-                      className={`flex-1 rounded-lg border-[2px] border-slate-800 py-2 font-pixel text-[8px] capitalize transition-colors ${
+                      className={`flex-1 pixel-border py-2 font-pixel text-[8px] capitalize transition-colors ${
                         difficulty === lvl
                           ? "bg-green-200 text-slate-800 shadow-[2px_2px_0_0_#15803d]"
                           : "bg-amber-50 text-[#4a5d3a] hover:bg-amber-100"
@@ -547,7 +547,7 @@ export default function AIRallyPage() {
 
         {gameState.gameOver && conn === "connected" && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-amber-50/85 backdrop-blur-sm">
-            <div className="tama-card tama-card-yellow max-w-md space-y-4 px-8 py-10 text-center">
+            <div className="tama-card tama-card-yellow pixel-border max-w-md space-y-4 px-8 py-10 text-center">
               <Trophy className="mx-auto h-16 w-16 text-yellow-600" />
               <p className="font-pixel text-[clamp(1rem,4vw,1.35rem)] text-slate-800">
                 {gameState.winner === "Player" ? "YOU WIN!" : "CPU WINS!"}
@@ -568,7 +568,7 @@ export default function AIRallyPage() {
                   variant="outline"
                   onClick={endArenaSession}
                   size="lg"
-                  className="border-[2px] border-slate-800 font-pixel text-[9px] bg-white hover:bg-amber-50"
+                  className="pixel-border font-pixel text-[9px] bg-white hover:bg-amber-50"
                 >
                   <LogOut className="mr-2 h-4 w-4" />
                   END GAME
