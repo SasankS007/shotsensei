@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageTransition } from "@/components/PageTransition";
 import { useAppStore } from "@/store/useAppStore";
 import type { ArenaDifficulty } from "@/store/useAppStore";
+import { playUiClick } from "@/lib/tamagotchiAudio";
 import {
   Crosshair,
   Gamepad2,
@@ -17,6 +19,7 @@ import {
   Flame,
   Award,
   Bookmark,
+  Trash2,
 } from "lucide-react";
 
 const modes = [
@@ -67,6 +70,8 @@ export default function DashboardPage() {
   const arenaStats = useAppStore((s) => s.arenaStats);
   const dojoSaves = useAppStore((s) => s.dojoSaves);
   const arenaMatches = useAppStore((s) => s.arenaMatches);
+  const clearHub = useAppStore((s) => s.clearHub);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const totalArenaWins = DIFF_LABELS.reduce(
     (acc, d) => acc + (arenaStats[d]?.wins ?? 0),
@@ -144,6 +149,44 @@ export default function DashboardPage() {
             Pick a cartridge and feed your pickle pet some reps. Saves stay on this device
             (Training Hub database).
           </p>
+          <div className="mt-4 flex items-center gap-3">
+            {!confirmClear ? (
+              <button
+                type="button"
+                onPointerDown={() => void playUiClick()}
+                onClick={() => setConfirmClear(true)}
+                className="inline-flex items-center gap-2 pixel-border bg-white/90 px-4 py-2 font-pixel text-[8px] text-[#6b5c3e] transition-colors hover:bg-red-50 hover:text-red-700"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                CLEAR HUB
+              </button>
+            ) : (
+              <>
+                <span className="font-pixel text-[8px] text-red-600">
+                  ERASE ALL DATA?
+                </span>
+                <button
+                  type="button"
+                  onPointerDown={() => void playUiClick()}
+                  onClick={() => {
+                    clearHub();
+                    setConfirmClear(false);
+                  }}
+                  className="pixel-border bg-red-500 px-4 py-2 font-pixel text-[8px] text-white shadow-[3px_3px_0_0_#991b1b] transition-colors hover:bg-red-600"
+                >
+                  YES, CLEAR
+                </button>
+                <button
+                  type="button"
+                  onPointerDown={() => void playUiClick()}
+                  onClick={() => setConfirmClear(false)}
+                  className="pixel-border bg-white/90 px-4 py-2 font-pixel text-[8px] text-[#4a5d3a] transition-colors hover:bg-amber-50"
+                >
+                  CANCEL
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         <motion.div

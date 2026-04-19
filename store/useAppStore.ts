@@ -57,6 +57,7 @@ interface AppState {
     playerScore: number;
     aiScore: number;
   }) => void;
+  clearHub: () => void;
 }
 
 const emptyArenaStats = (): Record<ArenaDifficulty, ArenaDifficultyStats> => ({
@@ -112,6 +113,15 @@ export const useAppStore = create<AppState>()(
           summary: `Dojo — ${row.strokeLabel} · score ${Math.round(row.score)}`,
         });
       },
+
+      clearHub: () =>
+        set({
+          sessionHistory: [],
+          trophyCount: 0,
+          arenaStats: emptyArenaStats(),
+          dojoSaves: [],
+          arenaMatches: [],
+        }),
 
       recordArenaMatch: ({ difficulty, won, playerScore, aiScore }) => {
         const id = `arena-${Date.now()}`;
