@@ -285,7 +285,7 @@ def request_gemini_feedback(payload: dict[str, Any]) -> dict[str, Any]:
     model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
     prompt = f"""
-You are StrokeSensei AI, an elite pickleball technique analysis system.
+You are Shot Sensei AI, an elite pickleball technique analysis system.
 
 Analyze the stroke data below and return structured JSON only.
 

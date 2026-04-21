@@ -67,7 +67,7 @@ export default function LandingPage() {
         <div className="net-bg fixed inset-0 z-[5]" aria-hidden />
 
         <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col items-center justify-center gap-6 md:flex-row md:items-center md:justify-between md:gap-8 lg:gap-14 lg:pl-4 lg:pr-0">
-          {/* Left: SVG logo + STROKE SENSEI — centered & proportional */}
+          {/* Left: SVG logo + SHOT SENSEI — centered & proportional */}
           <motion.div
             initial={{ opacity: 0, x: -16 }}
             animate={{ opacity: 1, x: 0 }}
@@ -77,7 +77,7 @@ export default function LandingPage() {
             <TamaLogoIcon className="h-[clamp(10rem,22vw,16rem)] w-[clamp(10rem,22vw,16rem)] drop-shadow-[6px_6px_0_rgba(15,23,42,0.4)]" />
 
             <h1 className="mt-5 text-center font-pixel text-[clamp(2rem,6vw,3.5rem)] leading-[1.1] tracking-tight text-[#fde047] drop-shadow-[4px_4px_0_rgba(15,23,42,0.5)]">
-              STROKE
+              SHOT
               <span className="block text-[#9bbc0f]">
                 SENSEI
               </span>

@@ -502,7 +502,7 @@ export default function StrokeAnalysisPage() {
                         <>
                           <Loader2 className="h-14 w-14 animate-spin text-lime-300" />
                           <p className="font-pixel text-[9px] text-white">
-                            BOOTING STROKE SENSEI...
+                            BOOTING SHOT SENSEI...
                           </p>
                           <p className="font-vt323 text-[1.6rem] leading-none text-slate-200">
                             Starting FastAPI, camera stream, and pose analysis.
@@ -654,7 +654,7 @@ export default function StrokeAnalysisPage() {
                   </div>
 
                   <div>
-                    <p className="font-pixel text-[8px] text-[#6b5c3e]">STROKE FOCUS</p>
+                    <p className="font-pixel text-[8px] text-[#6b5c3e]">SHOT TYPE</p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {STROKE_FOCUS_OPTIONS.map((option) => (
                         <TamaButton

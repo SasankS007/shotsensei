@@ -18,7 +18,7 @@ const vt323 = VT323({
 });
 
 export const metadata: Metadata = {
-  title: "Stroke Sensei — AI Pickleball Training",
+  title: "Shot Sensei — AI Pickleball Training",
   description:
     "Retro Tamagotchi-style pickleball coach: live stroke analysis and AI rally practice.",
 };

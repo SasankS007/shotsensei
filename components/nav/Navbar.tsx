@@ -22,7 +22,7 @@ export function Navbar() {
           <TamaLogoIcon />
           <div className="hidden sm:block">
             <p className="font-pixel text-[10px] leading-relaxed text-slate-800">
-              STROKE
+              SHOT
             </p>
             <p className="font-pixel text-[10px] leading-relaxed sensei-shimmer">
               SENSEI
