@@ -1,10 +1,11 @@
 import { createBrowserClient } from "@supabase/ssr";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+import {
+  supabaseBrowserAnonKey,
+  supabaseBrowserUrl,
+} from "@/lib/supabase-browser-env";
 
 export function createClient() {
-  return createBrowserClient(supabaseUrl, supabaseAnonKey);
+  return createBrowserClient(supabaseBrowserUrl, supabaseBrowserAnonKey);
 }
 
 /** Singleton browser client for use outside React (stores, utils). */

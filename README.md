@@ -36,8 +36,13 @@ Edit `.env.local` with your values:
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
 BACKEND_URL=http://localhost:8000
 ```
+
+`NEXT_PUBLIC_SUPABASE_*` is required for browser auth. `SUPABASE_*` is an optional
+server-side alias that this repo also supports.
 
 ### 3. Run the Frontend
 
