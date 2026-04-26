@@ -195,9 +195,13 @@ class CVEngine:
                     self._is_synthetic_box = True
 
             paddle_norm = self._paddle_center_norm()
-            self._arm_ids = self._infer_paddle_arm(
-                landmarks, paddle_norm, had_real_paddle
-            )
+            # Don't change the active arm mid-swing — lock it to the arm that
+            # started the swing so the overlay stays on the paddle hand.
+            from cv.stroke_classifier import Phase
+            if self.classifier.phase == Phase.READY:
+                self._arm_ids = self._infer_paddle_arm(
+                    landmarks, paddle_norm, had_real_paddle
+                )
 
             self.classifier.update(
                 landmarks,

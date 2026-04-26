@@ -205,7 +205,7 @@ class GameState:
     @staticmethod
     def _swing_to_bdx(wrist_dx: float) -> float:
         """Convert CV wrist_dx (normalised coords) to game bdx (px/frame)."""
-        raw = -wrist_dx * _SWING_BDX_SCALE
+        raw = wrist_dx * _SWING_BDX_SCALE
         sign = 1.0 if raw >= 0 else -1.0
         magnitude = min(_BDX_MAX, max(_BDX_MIN, abs(raw)))
         return sign * magnitude
