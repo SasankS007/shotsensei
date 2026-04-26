@@ -91,7 +91,7 @@ def _ai_miss_split(difficulty: str) -> tuple[float, float]:
 
 
 # Extra inward margin so the ball reads “in” before sideline fault (more forgiving).
-_SIDELINE_SLACK = 20.0
+_SIDELINE_SLACK = 28.0
 
 
 def _court_x_bounds(by: float) -> tuple[float, float]:
@@ -140,6 +140,7 @@ class GameState:
         self._ai_volley_committed = False
         self._player_swing_fired_this_pass = False
         self._prev_by_before_update = self.by
+        self._ai_weak_return = False   # True when AI hit a soft shot → wider hit zone
 
         self._serve(toward_player=True)
 
@@ -240,12 +241,9 @@ class GameState:
             self.net_flash_frames -= 1
         self._tick_swings_in_pause()
 
-        # Ball motion — perspective scaling: ball covers fewer pixels near the
-        # top (far end of court) to simulate real depth.
-        t = max(0.0, min(1.0, (self.by - MARGIN_TOP) / max(COURT_H - MARGIN_TOP, 1)))
-        persp = 0.75 + 0.45 * t         # 0.75× at AI end, 1.20× near player
-        self.bx += self.bdx * persp
-        self.by += self.bdy * persp
+        # Constant-speed ball motion — no perspective scaling on physics.
+        self.bx += self.bdx
+        self.by += self.bdy
 
         # ── Sideline OOB check (no wall bounces) ────────────────────────
         lx, rx = _court_x_bounds(self.by)
@@ -265,8 +263,8 @@ class GameState:
             elif player_cx > self.bx + 4:
                 self.player_x = max(self.player_x - PLAYER_SPEED, MARGIN_X)
 
-        # Hit window — lower third of court (forgiving contact)
-        hit_zone_y = COURT_H * 0.72
+        # Hit window — wider after a weak AI return so the user gets more leniency
+        hit_zone_y = COURT_H * (0.64 if self._ai_weak_return else 0.72)
         self.hit_window = self.bdy > 0 and self.by >= hit_zone_y
 
         # Player swing when ball first enters strike zone (every approach)
@@ -304,6 +302,7 @@ class GameState:
                 self.hit_window = False
                 self._ai_volley_committed = False
                 self._player_swing_fired_this_pass = False
+                self._ai_weak_return = False
 
         # Ball past player baseline → AI scores
         if self.by >= COURT_H + BALL_R:
@@ -355,9 +354,10 @@ class GameState:
                             self._score_point("player", reason="NET")
                             return
                         else:
-                            # Weak return — stays in court, keeps rallies going
+                            # Weak return — normal speed but player gets wider hit zone
                             self.last_hit_by = "ai"
-                            self.bdy = self.ball_speed * 0.52
+                            self._ai_weak_return = True
+                            self.bdy = self.ball_speed
                             in_sign = 1.0 if self.bdx >= 0 else -1.0
                             self.bdx = -in_sign * random.uniform(0.4, 0.9)
                             self._clamp_bdx()
