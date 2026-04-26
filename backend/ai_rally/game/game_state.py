@@ -22,8 +22,8 @@ BALL_R = 6
 WIN_SCORE = 11
 
 BALL_SPEED_INIT = 5.6
-BALL_SPEED_INC = 0.085
-BALL_SPEED_CAP = 9.6
+BALL_SPEED_INC = 0.03   # smaller increment so speed stays consistent across long rallies
+BALL_SPEED_CAP = 7.8    # lower cap prevents ball from becoming unplayable
 
 # AI miss probability (Hard baseline)
 AI_MISS_BASE = 0.15
@@ -74,10 +74,9 @@ def _ai_miss_probability(difficulty: str, bx: float, rally: int, stroke_score: f
     wobble = math.sin(nx * math.pi)
 
     if difficulty == "easy":
-        # Lower miss rate so rallies run longer on Easy.
-        return min(0.48, max(0.14, 0.28 + 0.12 * wobble))
+        return min(0.72, max(0.45, 0.58 + 0.14 * wobble))
     if difficulty == "medium":
-        return min(0.78, max(0.22, 0.48 + 0.14 * wobble))
+        return min(0.55, max(0.28, 0.40 + 0.15 * wobble))
 
     return DIFFICULTY_MISS.get("hard", 0.22)
 
@@ -244,7 +243,7 @@ class GameState:
         # Ball motion — perspective scaling: ball covers fewer pixels near the
         # top (far end of court) to simulate real depth.
         t = max(0.0, min(1.0, (self.by - MARGIN_TOP) / max(COURT_H - MARGIN_TOP, 1)))
-        persp = 0.55 + 0.9 * t          # 0.55× at AI end, 1.45× near player
+        persp = 0.75 + 0.45 * t         # 0.75× at AI end, 1.20× near player
         self.bx += self.bdx * persp
         self.by += self.bdy * persp
 
@@ -311,11 +310,12 @@ class GameState:
             self._score_point("ai")
 
         # ── AI paddle tracking ───────────────────────────────────────────
+        _spd = {"easy": 2.8, "medium": 4.0, "hard": AI_SPEED}.get(self.difficulty, AI_SPEED)
         ai_cx = self.ai_x + PADDLE_W / 2
         if ai_cx < self.bx - 4:
-            self.ai_x = min(self.ai_x + AI_SPEED, COURT_W - MARGIN_X - PADDLE_W)
+            self.ai_x = min(self.ai_x + _spd, COURT_W - MARGIN_X - PADDLE_W)
         elif ai_cx > self.bx + 4:
-            self.ai_x = max(self.ai_x - AI_SPEED, MARGIN_X)
+            self.ai_x = max(self.ai_x - _spd, MARGIN_X)
 
         # ── AI return (one decision per ball approach) ────────────────────
         ai_paddle_y = MARGIN_TOP
