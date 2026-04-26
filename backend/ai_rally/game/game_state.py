@@ -91,7 +91,7 @@ def _ai_miss_split(difficulty: str) -> tuple[float, float]:
 
 
 # Extra inward margin so the ball reads “in” before sideline fault (more forgiving).
-_SIDELINE_SLACK = 14.0
+_SIDELINE_SLACK = 20.0
 
 
 def _court_x_bounds(by: float) -> tuple[float, float]:
