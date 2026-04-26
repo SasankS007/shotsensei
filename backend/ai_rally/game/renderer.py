@@ -32,6 +32,9 @@ C_NET_TEXT = (255, 60, 60)
 C_PADDLE_FACE = (50, 200, 90)
 C_PADDLE_EDGE = (20, 100, 40)
 C_SCORE_PAUSE = (80, 220, 255)
+C_HAIR        = (80, 50, 30)
+C_EYE         = (40, 30, 30)
+C_SHOE        = (50, 45, 60)
 
 
 def _lerp(a, b, t):
@@ -80,16 +83,14 @@ class GameRenderer:
         # 5. AI sprite (top of court)
         ai_cx = int(gs.ai_x + PADDLE_W / 2)
         ai_cy = TOP_LEFT[1] + 30
-        draw_ai_sprite(s, ai_cx, ai_cy, swinging=gs.ai_swinging, scale=0.65)
-        self._draw_paddle_graphic(s, ai_cx, ai_cy + int(22 * 0.65), "up", gs.ai_swinging)
+        draw_ai_sprite(s, ai_cx, ai_cy, swinging=gs.ai_swinging, scale=0.65,
+                       ball_x=gs.bx, ball_coming=(gs.bdy < 0))
 
         # 6. Player sprite (bottom of court)
         player_cx = int(gs.player_x + PADDLE_W / 2)
         player_cy = BOT_LEFT[1] - 30
-        self._draw_player_sprite(
-            s, player_cx, player_cy, gs.stroke_phase, gs.player_swinging
-        )
-        self._draw_paddle_graphic(s, player_cx, player_cy + 18, "down", gs.player_swinging)
+        self._draw_player_sprite(s, player_cx, player_cy, gs.stroke_phase,
+                                 gs.player_swinging, gs)
 
         # 7. Ball with gradient (uses smoothed vx, vy)
         self._draw_ball(s, gs, vx, vy)
@@ -121,86 +122,139 @@ class GameRenderer:
         cx: int,
         cy: int,
         phase: str,
-        swinging: bool = False,
-    ):
-        s = 0.85  # slightly larger than AI (perspective)
-
-        head_r = int(8 * s)
-        # Head
-        pygame.draw.circle(surf, C_SKIN, (cx, cy - int(26 * s)), head_r)
-
-        # Torso
-        torso_w = int(20 * s)
-        torso_h = int(22 * s)
-        torso_x = cx - torso_w // 2
-        torso_y = cy - int(18 * s)
-        pygame.draw.rect(surf, C_SHIRT, (torso_x, torso_y, torso_w, torso_h), border_radius=3)
-
-        # Shorts
-        shorts_h = int(10 * s)
-        pygame.draw.rect(
-            surf, C_SHORTS,
-            (torso_x + 2, torso_y + torso_h, torso_w - 4, shorts_h),
-            border_radius=2,
-        )
-
-        # Legs
-        leg_w = max(4, int(5 * s))
-        leg_h = int(14 * s)
-        leg_y = torso_y + torso_h + shorts_h
-        pygame.draw.rect(surf, C_SKIN, (cx - int(7 * s), leg_y, leg_w, leg_h), border_radius=2)
-        pygame.draw.rect(surf, C_SKIN, (cx + int(2 * s), leg_y, leg_w, leg_h), border_radius=2)
-
-        # Arms
-        arm_w = max(3, int(5 * s))
-        arm_len = int(18 * s)
-
-        # Left arm (static)
-        la_x = torso_x - arm_w - 1
-        la_y = torso_y + 3
-        pygame.draw.rect(surf, C_PLAYER_ARM, (la_x, la_y, arm_w, arm_len), border_radius=2)
-
-        # Right arm (animated by phase; swing mirrors CONTACT)
-        eff_phase = "CONTACT" if swinging else phase
-        ra_x = torso_x + torso_w + 1
-        ra_y = torso_y + 3
-        if eff_phase == "BACKSWING":
-            # Arm raised
-            ra_y -= int(10 * s)
-            pygame.draw.rect(surf, C_PLAYER_ARM, (ra_x, ra_y, arm_w, arm_len + int(4 * s)), border_radius=2)
-        elif eff_phase == "CONTACT":
-            # Arm extended forward
-            ra_y -= int(6 * s)
-            ext_len = arm_len + int(8 * s)
-            pygame.draw.rect(surf, C_PLAYER_ARM, (ra_x, ra_y, arm_w, ext_len), border_radius=2)
-        elif eff_phase == "LOAD":
-            ra_y -= int(4 * s)
-            pygame.draw.rect(surf, C_PLAYER_ARM, (ra_x, ra_y, arm_w, arm_len + int(2 * s)), border_radius=2)
-        else:
-            pygame.draw.rect(surf, C_PLAYER_ARM, (ra_x, ra_y, arm_w, arm_len), border_radius=2)
-
-
-    def _draw_paddle_graphic(
-        self,
-        surf: pygame.Surface,
-        cx: int,
-        cy: int,
-        facing: str,
         swinging: bool,
+        gs,
     ):
-        """Pickleball paddle beside the body; animates on swing."""
-        pw, ph = 28, 8
-        tilt = -18 if swinging else 0
-        if facing == "up":
-            tilt = 18 if swinging else 0
+        s = 0.95
+        ticks = pygame.time.get_ticks()
+        i = lambda v: int(v * s)
+
+        ball_coming = gs.bdy > 0
+        swing_phase = "CONTACT" if swinging else phase
+
+        # Body bob and leg pump while ball approaches
+        bob   = int(math.sin(ticks * 0.018) * 3.5) if ball_coming else 0
+        leg_t = math.sin(ticks * 0.018)             if ball_coming else 0
+
+        # Lean body toward ball
+        lean_x = max(-8, min(8, (gs.bx - cx) * 0.035))
+
+        # Slight crouch in ready stance
+        crouch = 3 if ball_coming and swing_phase == "READY" else 0
+
+        base_y = cy + bob
+
+        # ── Legs ──────────────────────────────────────────────────────────
+        leg_w = max(5, i(6))
+        leg_h = i(16)
+        leg_y = base_y + i(3)
+        lb = int(leg_t * 5)   # left leg offset
+        rb = -lb              # right opposite
+
+        pygame.draw.rect(surf, C_SKIN,
+            (cx - i(8) + int(lean_x), leg_y + lb, leg_w, leg_h - lb), border_radius=3)
+        pygame.draw.rect(surf, C_SKIN,
+            (cx + i(2) + int(lean_x), leg_y + rb, leg_w, leg_h + rb), border_radius=3)
+
+        # Shoes
+        sw, sh = max(8, i(10)), max(4, i(5))
+        pygame.draw.ellipse(surf, C_SHOE,
+            (cx - i(11) + int(lean_x), leg_y + leg_h + lb - 2, sw, sh))
+        pygame.draw.ellipse(surf, C_SHOE,
+            (cx + i(0)  + int(lean_x), leg_y + leg_h + rb - 2, sw, sh))
+
+        # ── Shorts ────────────────────────────────────────────────────────
+        sw2, sh2 = i(22), i(10)
+        pygame.draw.rect(surf, C_SHORTS,
+            (cx - sw2 // 2 + int(lean_x), base_y - i(4) - crouch, sw2, sh2),
+            border_radius=3)
+
+        # ── Torso ─────────────────────────────────────────────────────────
+        tw, th = i(20), i(20)
+        tx = cx - tw // 2 + int(lean_x * 0.5)
+        ty = base_y - i(24) - crouch
+        pygame.draw.rect(surf, C_SHIRT, (tx, ty, tw, th), border_radius=4)
+
+        # ── Arms (line-segment style, Wii-like) ───────────────────────────
+        arm_w = max(4, i(5))
+
+        # Non-paddle arm (left) — slightly raised and forward in ready stance
+        la_sh = (tx - 1, ty + i(3))
+        if ball_coming:
+            la_el = (tx - i(7), ty + i(9))
+            la_wr = (tx - i(5), ty + i(17))
+        else:
+            la_el = (tx - i(5), ty + i(10))
+            la_wr = (tx - i(3), ty + i(18))
+        self._line_arm(surf, la_sh, la_el, la_wr, C_PLAYER_ARM, arm_w)
+
+        # Paddle arm (right) — full sweep animation
+        ra_sh = (tx + tw + 1, ty + i(3))
+        if swing_phase == "BACKSWING":
+            ra_el = (ra_sh[0] + i(8),  ra_sh[1] - i(10))
+            ra_wr = (ra_el[0] + i(5),  ra_el[1] + i(8))
+        elif swing_phase == "LOAD":
+            ra_el = (ra_sh[0] + i(6),  ra_sh[1] - i(4))
+            ra_wr = (ra_el[0] + i(3),  ra_el[1] + i(10))
+        elif swing_phase == "CONTACT":
+            # Arm sweeping across — elbow leads forward, wrist crosses body
+            ra_el = (ra_sh[0] - i(2),  ra_sh[1] + i(6))
+            ra_wr = (ra_el[0] - i(14), ra_el[1] + i(3))
+        elif swing_phase == "FOLLOW_THROUGH":
+            ra_el = (ra_sh[0] - i(5),  ra_sh[1] + i(2))
+            ra_wr = (ra_el[0] - i(14), ra_el[1] - i(8))
+        elif ball_coming:
+            # Ready — elbow bent, paddle held in front
+            ra_el = (ra_sh[0] + i(6),  ra_sh[1] + i(9))
+            ra_wr = (ra_el[0] - i(4),  ra_el[1] + i(9))
+        else:
+            ra_el = (ra_sh[0] + i(5),  ra_sh[1] + i(9))
+            ra_wr = (ra_el[0] + i(2),  ra_el[1] + i(9))
+
+        self._line_arm(surf, ra_sh, ra_el, ra_wr, C_PLAYER_ARM, arm_w)
+        self._draw_wrist_paddle(surf, ra_wr, ra_el)
+
+        # ── Head ──────────────────────────────────────────────────────────
+        hr  = max(i(10), 7)
+        hcx = cx + int(lean_x * 0.3)
+        hcy = ty - hr - 2
+        pygame.draw.circle(surf, C_SKIN, (hcx, hcy), hr)
+        # Hair
+        pygame.draw.rect(surf, C_HAIR,
+            (hcx - hr, hcy - hr, hr * 2, hr // 2 + 2), border_radius=hr)
+        # Eyes
+        pygame.draw.circle(surf, C_EYE, (hcx - i(3), hcy - 1), max(2, i(2)))
+        pygame.draw.circle(surf, C_EYE, (hcx + i(3), hcy - 1), max(2, i(2)))
+        # Determined expression when swinging
+        if swing_phase in ("CONTACT", "FOLLOW_THROUGH"):
+            pygame.draw.line(surf, C_EYE, (hcx - i(4), hcy - 3), (hcx - i(1), hcy - 1), 1)
+            pygame.draw.line(surf, C_EYE, (hcx + i(1), hcy - 1), (hcx + i(4), hcy - 3), 1)
+
+    @staticmethod
+    def _line_arm(surf, shoulder, elbow, wrist, color, width):
+        pygame.draw.line(surf, color, shoulder, elbow, width)
+        pygame.draw.line(surf, color, elbow,    wrist,  width)
+        pygame.draw.circle(surf, color, shoulder, width // 2 + 1)
+        pygame.draw.circle(surf, color, elbow,    width // 2 + 1)
+        pygame.draw.circle(surf, color, wrist,    width // 2)
+
+    @staticmethod
+    def _draw_wrist_paddle(surf, wrist, elbow):
+        """Small paddle at wrist, rotated along arm direction."""
+        dx = wrist[0] - elbow[0]
+        dy = wrist[1] - elbow[1]
+        length = max(math.hypot(dx, dy), 1.0)
+        angle = math.degrees(math.atan2(-dy / length, dx / length))
+        pw, ph = 24, 7
         paddle = pygame.Surface((pw + 4, ph + 4), pygame.SRCALPHA)
         pygame.draw.ellipse(paddle, C_PADDLE_EDGE, (2, 2, pw, ph))
         pygame.draw.ellipse(paddle, C_PADDLE_FACE, (4, 3, pw - 4, ph - 4))
-        if tilt:
-            rotated = pygame.transform.rotate(paddle, tilt)
-            surf.blit(rotated, (cx - rotated.get_width() // 2, cy - rotated.get_height() // 2))
-        else:
-            surf.blit(paddle, (cx - pw // 2, cy - ph // 2))
+        rotated = pygame.transform.rotate(paddle, angle)
+        surf.blit(rotated, (wrist[0] - rotated.get_width() // 2,
+                            wrist[1] - rotated.get_height() // 2))
+
+    def _draw_paddle_graphic(self, *_args, **_kwargs):
+        pass  # superseded by _draw_wrist_paddle
 
     def _draw_point_pause_overlay(self, surf: pygame.Surface, gs: GameState):
         rem = gs._point_pause_remaining
