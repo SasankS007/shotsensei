@@ -74,9 +74,9 @@ def _ai_miss_probability(difficulty: str, bx: float, rally: int, stroke_score: f
     wobble = math.sin(nx * math.pi)
 
     if difficulty == "easy":
-        return min(0.72, max(0.45, 0.58 + 0.14 * wobble))
+        return min(0.62, max(0.32, 0.46 + 0.16 * wobble))
     if difficulty == "medium":
-        return min(0.55, max(0.28, 0.40 + 0.15 * wobble))
+        return min(0.48, max(0.24, 0.34 + 0.14 * wobble))
 
     return DIFFICULTY_MISS.get("hard", 0.22)
 
@@ -310,7 +310,7 @@ class GameState:
             self._score_point("ai")
 
         # ── AI paddle tracking ───────────────────────────────────────────
-        _spd = {"easy": 2.8, "medium": 4.0, "hard": AI_SPEED}.get(self.difficulty, AI_SPEED)
+        _spd = {"easy": 3.4, "medium": 4.3, "hard": AI_SPEED}.get(self.difficulty, AI_SPEED)
         ai_cx = self.ai_x + PADDLE_W / 2
         if ai_cx < self.bx - 4:
             self.ai_x = min(self.ai_x + _spd, COURT_W - MARGIN_X - PADDLE_W)

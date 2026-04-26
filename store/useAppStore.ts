@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { supabase } from "@/lib/supabase";
 
 export type StrokeType = "forehand" | "backhand" | "volley" | "slice";
 export type AppMode = "stroke-analysis" | "ai-rally" | null;
@@ -112,6 +113,17 @@ export const useAppStore = create<AppState>()(
           date,
           summary: `Dojo — ${row.strokeLabel} · score ${Math.round(row.score)}`,
         });
+        // Sync to Supabase if logged in
+        supabase.auth.getUser().then(({ data }) => {
+          if (!data.user) return;
+          supabase.from("dojo_saves").insert({
+            user_id: data.user.id,
+            stroke_label: row.strokeLabel,
+            score: row.score,
+            phase: row.phase ?? null,
+            note: row.note ?? null,
+          }).then(() => {});
+        });
       },
 
       clearHub: () =>
@@ -154,6 +166,18 @@ export const useAppStore = create<AppState>()(
           mode: "ai-rally",
           date,
           summary: `Rally Arena (${difficulty}) — ${won ? "Won" : "Lost"} ${playerScore}-${aiScore}${trophyEarned ? " · +1 trophy" : ""}`,
+        });
+        // Sync to Supabase if logged in
+        supabase.auth.getUser().then(({ data }) => {
+          if (!data.user) return;
+          supabase.from("arena_matches").insert({
+            user_id: data.user.id,
+            difficulty,
+            won,
+            player_score: playerScore,
+            ai_score: aiScore,
+            trophy_earned: trophyEarned,
+          }).then(() => {});
         });
       },
     }),

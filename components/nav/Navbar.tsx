@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { Crosshair, Gamepad2, LayoutDashboard } from "lucide-react";
+import { Crosshair, Gamepad2, LayoutDashboard, LogOut, User } from "lucide-react";
 import { TamaLogoIcon } from "@/components/TamaLogoIcon";
+import { createClient } from "@/lib/supabase";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 const navLinks = [
   { href: "/dashboard", label: "Hub", icon: LayoutDashboard },
@@ -14,6 +17,39 @@ const navLinks = [
 
 export function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [username, setUsername] = useState<string | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => {
+      setUser(data.user ?? null);
+      if (data.user) {
+        setUsername(
+          (data.user.user_metadata?.username as string) ?? data.user.email?.split("@")[0] ?? null
+        );
+      }
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        setUsername(
+          (session.user.user_metadata?.username as string) ?? session.user.email?.split("@")[0] ?? null
+        );
+      } else {
+        setUsername(null);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function handleLogout() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push("/auth/login");
+    router.refresh();
+  }
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 border-b-[2.5px] border-slate-800 bg-amber-50/95 shadow-[0_4px_0_0_rgba(30,41,59,0.16)] backdrop-blur-md">
@@ -21,12 +57,8 @@ export function Navbar() {
         <Link href="/" className="flex items-center gap-2 group">
           <TamaLogoIcon />
           <div className="hidden sm:block">
-            <p className="font-pixel text-[10px] leading-relaxed text-slate-800">
-              SHOT
-            </p>
-            <p className="font-pixel text-[10px] leading-relaxed sensei-shimmer">
-              SENSEI
-            </p>
+            <p className="font-pixel text-[10px] leading-relaxed text-slate-800">SHOT</p>
+            <p className="font-pixel text-[10px] leading-relaxed sensei-shimmer">SENSEI</p>
           </div>
         </Link>
 
@@ -51,7 +83,33 @@ export function Navbar() {
           })}
         </div>
 
-        {/* Mobile menu */}
+        {/* Auth section */}
+        <div className="flex items-center gap-2">
+          {user ? (
+            <>
+              <div className="hidden sm:flex items-center gap-1.5 rounded-xl border-[2px] border-slate-800 bg-green-100 px-3 py-1.5 shadow-[2px_2px_0_#15803d]">
+                <User className="h-3.5 w-3.5 text-[#306230]" />
+                <span className="font-pixel text-[8px] text-[#306230]">{username}</span>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-1.5 rounded-xl border-[2px] border-slate-800 bg-white px-3 py-1.5 font-pixel text-[8px] text-slate-700 shadow-[3px_3px_0_rgba(30,41,59,0.2)] transition-[transform,box-shadow] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[1px_1px_0_rgba(30,41,59,0.2)]"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">LOG OUT</span>
+              </button>
+            </>
+          ) : (
+            <Link
+              href="/auth/login"
+              className="flex items-center gap-1.5 rounded-xl border-[2px] border-slate-800 bg-[#ffd966] px-3 py-1.5 font-pixel text-[8px] text-slate-800 shadow-[3px_3px_0_#1e293b] transition-[transform,box-shadow] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[1px_1px_0_#1e293b]"
+            >
+              LOG IN
+            </Link>
+          )}
+        </div>
+
+        {/* Mobile nav icons */}
         <div className="flex md:hidden items-center gap-2">
           {navLinks.map((link) => {
             const isActive = pathname === link.href;
