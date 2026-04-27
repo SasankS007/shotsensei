@@ -25,8 +25,15 @@ import {
 const WS_URL = "ws://localhost:8765";
 
 type ConnState = "disconnected" | "connecting" | "connected" | "error";
-
 type Difficulty = "easy" | "medium" | "hard";
+type MatchPhase =
+  | "idle"
+  | "coin_choice"
+  | "flipping"
+  | "coin_result"
+  | "serve_choice"
+  | "serve_meter"
+  | "playing";
 
 interface GameState {
   playerScore: number;
@@ -39,12 +46,25 @@ interface GameState {
   error?: string;
 }
 
+function computeServeQuality(cursorPos: number): number {
+  // 0 = left edge, 1 = right edge; centre = 0.5 = perfect timing
+  const dist = Math.abs(cursorPos - 0.5);
+  return Math.max(0, 1 - dist * 2);
+}
+
+function serveLabel(quality: number): { text: string; color: string } {
+  if (quality >= 0.7) return { text: "⚡ ACE!", color: "#22c55e" };
+  if (quality >= 0.4) return { text: "✓ GOOD SERVE", color: "#eab308" };
+  return { text: "↓ WEAK SERVE", color: "#f97316" };
+}
+
 export default function AIRallyPage() {
   const cameraCanvasRef = useRef<HTMLCanvasElement>(null);
   const gameCanvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const recordedGameRef = useRef(false);
   const recordArenaMatch = useAppStore((s) => s.recordArenaMatch);
+
   const [conn, setConn] = useState<ConnState>("disconnected");
   const [gameState, setGameState] = useState<GameState>({
     playerScore: 0,
@@ -60,6 +80,105 @@ export default function AIRallyPage() {
   const prevRallyRef = useRef<number | null>(null);
   const gameOverAnnouncedRef = useRef(false);
 
+  // ── Match phase state machine ─────────────────────────────────────────
+  const [matchPhase, setMatchPhase] = useState<MatchPhase>("idle");
+  const matchPhaseRef = useRef<MatchPhase>("idle");
+  useEffect(() => {
+    matchPhaseRef.current = matchPhase;
+  }, [matchPhase]);
+
+  const [playerWonCoin, setPlayerWonCoin] = useState(false);
+  const [coinFace, setCoinFace] = useState<"H" | "T">("H");
+  const [serveResult, setServeResult] = useState<{ text: string; color: string } | null>(null);
+  const [serveFrozen, setServeFrozen] = useState(false);
+  const [cursorPosDisplay, setCursorPosDisplay] = useState(0);
+
+  const cursorPosRef = useRef(0);
+  const serveMeterAnimRef = useRef<number | null>(null);
+  const serveTriggeredRef = useRef(false);
+  const serveReadyRef = useRef(false);
+
+  // Show coin flip when connection is established
+  useEffect(() => {
+    if (conn === "connected" && matchPhase === "idle") {
+      setMatchPhase("coin_choice");
+    }
+  }, [conn, matchPhase]);
+
+  // Serve meter cursor animation
+  useEffect(() => {
+    if (matchPhase !== "serve_meter" || serveFrozen) {
+      if (serveMeterAnimRef.current) {
+        cancelAnimationFrame(serveMeterAnimRef.current);
+        serveMeterAnimRef.current = null;
+      }
+      return;
+    }
+    const startTime = Date.now();
+    const PERIOD = 1100; // ms for one full sweep
+    const tick = () => {
+      const t = ((Date.now() - startTime) % PERIOD) / PERIOD;
+      const pos = t < 0.5 ? t * 2 : (1 - t) * 2; // triangle wave 0→1→0
+      cursorPosRef.current = pos;
+      setCursorPosDisplay(pos);
+      serveMeterAnimRef.current = requestAnimationFrame(tick);
+    };
+    serveMeterAnimRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (serveMeterAnimRef.current) cancelAnimationFrame(serveMeterAnimRef.current);
+    };
+  }, [matchPhase, serveFrozen]);
+
+  const handleCoinPick = useCallback((pick: "H" | "T") => {
+    void playUiClick();
+    const result: "H" | "T" = Math.random() < 0.5 ? "H" : "T";
+    const won = pick === result;
+    setPlayerWonCoin(won);
+    setMatchPhase("flipping");
+
+    let face: "H" | "T" = "H";
+    const interval = setInterval(() => {
+      face = face === "H" ? "T" : "H";
+      setCoinFace(face);
+    }, 80);
+
+    setTimeout(() => {
+      clearInterval(interval);
+      setCoinFace(result);
+      if (won) {
+        setMatchPhase("coin_result");
+        // show result for 1.2s then go to serve choice
+        setTimeout(() => setMatchPhase("serve_choice"), 1200);
+      } else {
+        setMatchPhase("coin_result");
+        // AI serves — auto-start after 2s
+        setTimeout(() => {
+          wsRef.current?.send(JSON.stringify({ action: "match_start" }));
+          setMatchPhase("playing");
+        }, 2200);
+      }
+    }, 2000);
+  }, []);
+
+  const handleServeChoice = useCallback((choice: "serve" | "receive") => {
+    void playUiClick();
+    if (choice === "receive") {
+      wsRef.current?.send(JSON.stringify({ action: "match_start" }));
+      setMatchPhase("playing");
+    } else {
+      wsRef.current?.send(JSON.stringify({ action: "player_serve_mode" }));
+      serveTriggeredRef.current = false;
+      serveReadyRef.current = false;
+      setServeFrozen(false);
+      setServeResult(null);
+      setMatchPhase("serve_meter");
+      setTimeout(() => {
+        serveReadyRef.current = true;
+      }, 700); // ignore stale strokes from before serve mode
+    }
+  }, []);
+
+  // ── Frame renderer ────────────────────────────────────────────────────
   const drawFrame = useCallback(async (blob: Blob) => {
     const cam = cameraCanvasRef.current;
     const game = gameCanvasRef.current;
@@ -84,6 +203,7 @@ export default function AIRallyPage() {
     bitmap.close();
   }, []);
 
+  // ── WebSocket connect ─────────────────────────────────────────────────
   const connect = useCallback(() => {
     if (wsRef.current) {
       wsRef.current.close();
@@ -106,14 +226,32 @@ export default function AIRallyPage() {
         try {
           const data = JSON.parse(ev.data) as Record<string, unknown>;
           if (data.error) {
-            setGameState((prev) => ({
-              ...prev,
-              error: String(data.error),
-            }));
+            setGameState((prev) => ({ ...prev, error: String(data.error) }));
             setConn("error");
             ws.close();
             return;
           }
+
+          // Serve meter: detect swing to trigger serve
+          if (
+            matchPhaseRef.current === "serve_meter" &&
+            serveReadyRef.current &&
+            !serveTriggeredRef.current &&
+            (data.stroke === "FOREHAND" || data.stroke === "BACKHAND")
+          ) {
+            serveTriggeredRef.current = true;
+            const quality = computeServeQuality(cursorPosRef.current);
+            const label = serveLabel(quality);
+            setServeFrozen(true);
+            setServeResult(label);
+            ws.send(JSON.stringify({ action: "serve_execute", quality }));
+            setTimeout(() => {
+              setMatchPhase("playing");
+              setServeResult(null);
+              setServeFrozen(false);
+            }, 900);
+          }
+
           setGameState({
             playerScore: Number(data.playerScore ?? 0),
             aiScore: Number(data.aiScore ?? 0),
@@ -136,6 +274,7 @@ export default function AIRallyPage() {
     wsRef.current = ws;
   }, [drawFrame, difficulty]);
 
+  // ── Existing effects ──────────────────────────────────────────────────
   useEffect(() => {
     if (!gameState.gameOver) {
       recordedGameRef.current = false;
@@ -150,14 +289,7 @@ export default function AIRallyPage() {
       playerScore: gameState.playerScore,
       aiScore: gameState.aiScore,
     });
-  }, [
-    gameState.gameOver,
-    gameState.winner,
-    gameState.playerScore,
-    gameState.aiScore,
-    difficulty,
-    recordArenaMatch,
-  ]);
+  }, [gameState.gameOver, gameState.winner, gameState.playerScore, gameState.aiScore, difficulty, recordArenaMatch]);
 
   useEffect(() => {
     if (conn !== "connected") {
@@ -182,9 +314,7 @@ export default function AIRallyPage() {
     const r = gameState.rally;
     const prev = prevRallyRef.current;
     prevRallyRef.current = r;
-    if (prev !== null && r > prev) {
-      void playBallHit();
-    }
+    if (prev !== null && r > prev) void playBallHit();
   }, [gameState.rally, conn]);
 
   useEffect(() => {
@@ -195,9 +325,7 @@ export default function AIRallyPage() {
     if (gameOverAnnouncedRef.current) return;
     gameOverAnnouncedRef.current = true;
     const won = gameState.winner === "Player";
-    const t = window.setTimeout(() => {
-      void announceGameOver(won);
-    }, 2400);
+    const t = window.setTimeout(() => void announceGameOver(won), 2400);
     return () => clearTimeout(t);
   }, [gameState.gameOver, gameState.winner]);
 
@@ -209,13 +337,14 @@ export default function AIRallyPage() {
 
   const resetGame = useCallback(() => {
     wsRef.current?.send(JSON.stringify({ action: "reset" }));
+    setMatchPhase("idle");
   }, []);
 
-  /** Leave the match: close link, clear UI so you can exit without another rally. */
   const endArenaSession = useCallback(() => {
     wsRef.current?.close();
     wsRef.current = null;
     setConn("disconnected");
+    setMatchPhase("idle");
     setGameState({
       playerScore: 0,
       aiScore: 0,
@@ -230,7 +359,6 @@ export default function AIRallyPage() {
     gameOverAnnouncedRef.current = false;
   }, []);
 
-  /** Set difficulty anytime; notifies server only when the rally socket is open. */
   const pickDifficulty = useCallback((level: Difficulty) => {
     setDifficulty(level);
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -248,18 +376,13 @@ export default function AIRallyPage() {
         try {
           const probe = new WebSocket(WS_URL);
           await new Promise<void>((resolve, reject) => {
-            probe.onopen = () => {
-              probe.close();
-              resolve();
-            };
+            probe.onopen = () => { probe.close(); resolve(); };
             probe.onerror = () => reject();
             setTimeout(() => reject(), 1500);
           });
           connect();
           return;
-        } catch {
-          /* server not ready yet, retry */
-        }
+        } catch { /* not ready yet */ }
       }
       setConn("error");
     } catch {
@@ -273,35 +396,38 @@ export default function AIRallyPage() {
     disconnect();
     try {
       await fetch("/api/rally/stop-cv", { method: "POST" });
-    } catch {
-      /* best-effort */
-    }
+    } catch { /* best-effort */ }
   }, [disconnect]);
 
   useEffect(() => {
-    return () => {
-      wsRef.current?.close();
-    };
+    return () => { wsRef.current?.close(); };
   }, []);
 
+  // ── Layout helpers ────────────────────────────────────────────────────
   const panelShell =
     "relative overflow-hidden pixel-border bg-slate-900/5 shadow-[5px_5px_0_0_#0284c7]";
   const placeholderGrid = "grid grid-cols-1 gap-3 md:grid-cols-2";
+
+  const showCoinOverlay =
+    conn === "connected" &&
+    (matchPhase === "coin_choice" ||
+      matchPhase === "flipping" ||
+      matchPhase === "coin_result" ||
+      matchPhase === "serve_choice");
+
+  const showServeMeter = conn === "connected" && matchPhase === "serve_meter";
 
   return (
     <PageTransition>
       <div className="relative mx-auto max-w-screen-2xl overflow-hidden px-2 py-4 sm:px-4 lg:px-6">
         <div className="net-bg fixed inset-0 -z-[1]" aria-hidden />
         <div className="mb-6">
-          <p className="font-pixel text-[8px] tracking-[0.28em] text-[#6b5c3e]">
-            ARENA
-          </p>
+          <p className="font-pixel text-[8px] tracking-[0.28em] text-[#6b5c3e]">ARENA</p>
           <h1 className="mt-2 font-pixel text-[clamp(1.25rem,4vw,2rem)] leading-tight text-slate-800">
             RALLY ARENA
           </h1>
           <p className="mt-2 font-vt323 text-[1.75rem] leading-tight text-[#4a5d3a]">
-            Webcam swing vs CPU — first to 11. Miss a return and concede the
-            point. Rallies tuned for every difficulty.
+            Webcam swing vs CPU — first to 11. Miss a return and concede the point. Rallies tuned for every difficulty.
           </p>
 
           <div className="mt-6 pixel-border bg-gradient-to-br from-amber-50 to-lime-50/80 px-4 py-4 shadow-[5px_5px_0_0_#ca8a04] sm:px-6 sm:py-5">
@@ -331,7 +457,7 @@ export default function AIRallyPage() {
           </div>
         </div>
 
-        {/* Connect / reset buttons — above the canvases */}
+        {/* Buttons above canvases */}
         <div className="mb-3 flex flex-wrap items-center gap-2">
           {conn === "disconnected" || conn === "error" ? (
             <>
@@ -356,10 +482,10 @@ export default function AIRallyPage() {
         </div>
 
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
-          {/* Main stage: camera | game */}
+          {/* Main stage */}
           <div className="min-w-0 flex-1">
             {conn === "connected" ? (
-              <div className={`${placeholderGrid}`}>
+              <div className={placeholderGrid}>
                 <div className={panelShell} style={{ backgroundColor: "#2d3a2e" }}>
                   <canvas
                     ref={cameraCanvasRef}
@@ -374,16 +500,59 @@ export default function AIRallyPage() {
                     ref={gameCanvasRef}
                     className="h-auto w-full max-h-[min(86vh,760px)] object-contain"
                   />
-                  {gameState.hitWindow && (
+                  {gameState.hitWindow && matchPhase === "playing" && (
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2 bg-yellow-400/60 animate-pulse" />
                   )}
                   <div className="pointer-events-none absolute left-2 top-2 pixel-border bg-white/90 px-2 py-1 font-pixel text-[7px] text-[#2e4a1e]">
                     COURT
                   </div>
+
+                  {/* Serve meter overlay (inside the court canvas) */}
+                  {showServeMeter && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-end pb-10 gap-3">
+                      <p className="font-pixel text-[8px] text-yellow-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                        {serveFrozen ? "" : "SWING IN THE GREEN ZONE"}
+                      </p>
+                      {/* The meter bar */}
+                      <div className="relative w-64 h-8 rounded overflow-hidden border-[3px] border-slate-900 shadow-[3px_3px_0_#0f172a]">
+                        {/* Zones */}
+                        <div className="absolute inset-y-0 left-0 bg-red-500" style={{ width: "15%" }} />
+                        <div className="absolute inset-y-0 bg-yellow-400" style={{ left: "15%", width: "20%" }} />
+                        <div className="absolute inset-y-0 bg-green-500" style={{ left: "35%", width: "30%" }} />
+                        <div className="absolute inset-y-0 bg-yellow-400" style={{ left: "65%", width: "20%" }} />
+                        <div className="absolute inset-y-0 right-0 bg-red-500" style={{ width: "15%" }} />
+                        {/* Cursor */}
+                        <div
+                          className="absolute inset-y-0 w-[3px] bg-white shadow-[0_0_6px_2px_rgba(255,255,255,0.9)]"
+                          style={{ left: `${cursorPosDisplay * 100}%`, transition: "none" }}
+                        />
+                        {/* Zone labels */}
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <span className="font-pixel text-[6px] text-white/80 tracking-widest">
+                            FAULT &nbsp;&nbsp; OK &nbsp;&nbsp; ACE &nbsp;&nbsp; OK &nbsp;&nbsp; FAULT
+                          </span>
+                        </div>
+                      </div>
+                      {/* Result feedback */}
+                      {serveResult && (
+                        <p
+                          className="font-pixel text-[11px] drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]"
+                          style={{ color: serveResult.color }}
+                        >
+                          {serveResult.text}
+                        </p>
+                      )}
+                      {!serveFrozen && (
+                        <p className="font-vt323 text-[1.1rem] text-white/70 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                          Make a full swing to serve
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
-              <div className={`${placeholderGrid}`}>
+              <div className={placeholderGrid}>
                 <div className={`${panelShell} flex aspect-[4/3] flex-col items-center justify-center gap-3 bg-secondary/30 p-4`}>
                   {conn === "connecting" || launching ? (
                     <>
@@ -395,7 +564,9 @@ export default function AIRallyPage() {
                   ) : conn === "error" ? (
                     <>
                       <WifiOff className="h-10 w-10 text-red-400" />
-                      <p className="font-pixel text-[9px] text-red-500">{gameState.error ? "CAMERA ERROR" : "NO CV SERVER"}</p>
+                      <p className="font-pixel text-[9px] text-red-500">
+                        {gameState.error ? "CAMERA ERROR" : "NO CV SERVER"}
+                      </p>
                       <p className="text-center font-vt323 text-[1.1rem] leading-tight text-[#4a5d3a]">
                         {gameState.error || 'Run the backend or tap "Launch & Connect".'}
                       </p>
@@ -416,9 +587,8 @@ export default function AIRallyPage() {
             )}
           </div>
 
-          {/* Slim stats rail */}
+          {/* Stats rail */}
           <aside className="w-full shrink-0 space-y-2 lg:w-44">
-            {/* Score */}
             <Card className="pixel-border bg-white/90">
               <CardContent className="p-3">
                 <p className="mb-1 font-pixel text-[7px] text-[#6b5c3e]">SCORE</p>
@@ -436,21 +606,21 @@ export default function AIRallyPage() {
               </CardContent>
             </Card>
 
-            {/* Rally + status */}
             <Card className="pixel-border bg-white/90">
               <CardContent className="p-3 flex items-center justify-between">
                 <div>
                   <p className="font-pixel text-[6px] text-[#6b5c3e]">RALLY</p>
                   <p className="font-vt323 text-[1.6rem] leading-none text-slate-800">{gameState.rally}</p>
                 </div>
-                <span className={`relative flex h-2.5 w-2.5`}>
-                  {conn === "connected" && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />}
+                <span className="relative flex h-2.5 w-2.5">
+                  {conn === "connected" && (
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                  )}
                   <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${conn === "connected" ? "bg-green-500" : conn === "error" ? "bg-red-500" : "bg-gray-400"}`} />
                 </span>
               </CardContent>
             </Card>
 
-            {/* Difficulty */}
             <Card className="pixel-border bg-white/90">
               <CardContent className="p-3">
                 <p className="mb-1.5 font-pixel text-[6px] text-[#6b5c3e]">CPU</p>
@@ -476,6 +646,107 @@ export default function AIRallyPage() {
           </aside>
         </div>
 
+        {/* ── Coin flip overlay ─────────────────────────────────────────── */}
+        {showCoinOverlay && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-5 rounded-[2rem] border-[6px] border-slate-900 bg-[#fde047] px-10 py-8 shadow-[14px_14px_0_#1e293b] max-w-sm w-full mx-4">
+
+              {matchPhase === "coin_choice" && (
+                <>
+                  <p className="font-pixel text-[9px] text-slate-700 tracking-widest">COIN TOSS</p>
+                  <p className="font-vt323 text-[1.6rem] text-slate-800 text-center leading-tight">
+                    Call it — winner picks serve!
+                  </p>
+                  {/* Coin graphic */}
+                  <div className="flex h-24 w-24 items-center justify-center rounded-full border-[5px] border-slate-800 bg-amber-400 shadow-[4px_4px_0_#1e293b]">
+                    <span className="font-pixel text-[28px] text-slate-800">?</span>
+                  </div>
+                  <div className="flex gap-4 w-full">
+                    <button
+                      onClick={() => handleCoinPick("H")}
+                      className="flex-1 rounded-xl border-[3px] border-slate-900 bg-[#9bbc0f] py-3 font-pixel text-[10px] text-[#306230] shadow-[4px_4px_0_#1e293b] transition-[transform,box-shadow] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0_#1e293b]"
+                    >
+                      HEADS
+                    </button>
+                    <button
+                      onClick={() => handleCoinPick("T")}
+                      className="flex-1 rounded-xl border-[3px] border-slate-900 bg-[#9bbc0f] py-3 font-pixel text-[10px] text-[#306230] shadow-[4px_4px_0_#1e293b] transition-[transform,box-shadow] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0_#1e293b]"
+                    >
+                      TAILS
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {matchPhase === "flipping" && (
+                <>
+                  <p className="font-pixel text-[9px] text-slate-700 tracking-widest">FLIPPING...</p>
+                  <div
+                    className="flex h-24 w-24 items-center justify-center rounded-full border-[5px] border-slate-800 bg-amber-400 shadow-[4px_4px_0_#1e293b]"
+                    style={{
+                      animation: "coinSpin 0.16s linear infinite",
+                    }}
+                  >
+                    <span className="font-pixel text-[28px] text-slate-800">{coinFace}</span>
+                  </div>
+                  <style>{`
+                    @keyframes coinSpin {
+                      0%   { transform: scaleX(1); }
+                      50%  { transform: scaleX(0.05); }
+                      100% { transform: scaleX(1); }
+                    }
+                  `}</style>
+                  <p className="font-vt323 text-[1.4rem] text-slate-700">Deciding fate...</p>
+                </>
+              )}
+
+              {(matchPhase === "coin_result" || matchPhase === "serve_choice") && (
+                <>
+                  <p className="font-pixel text-[9px] text-slate-700 tracking-widest">
+                    {playerWonCoin ? "YOU WIN THE TOSS!" : "CPU WINS THE TOSS"}
+                  </p>
+                  <div className="flex h-24 w-24 items-center justify-center rounded-full border-[5px] border-slate-800 bg-amber-400 shadow-[4px_4px_0_#1e293b]">
+                    <span className="font-pixel text-[28px] text-slate-800">{coinFace}</span>
+                  </div>
+                  {playerWonCoin ? (
+                    <p className="font-vt323 text-[1.4rem] text-[#306230] text-center">
+                      {coinFace === "H" ? "Heads" : "Tails"} — you called it! 🎉
+                    </p>
+                  ) : (
+                    <p className="font-vt323 text-[1.4rem] text-red-600 text-center">
+                      {coinFace} — CPU serves first!
+                    </p>
+                  )}
+
+                  {matchPhase === "serve_choice" && (
+                    <>
+                      <p className="font-pixel text-[8px] text-slate-700">YOUR CHOICE:</p>
+                      <div className="flex gap-4 w-full">
+                        <button
+                          onClick={() => handleServeChoice("serve")}
+                          className="flex-1 rounded-xl border-[3px] border-slate-900 bg-green-400 py-3 font-pixel text-[9px] text-slate-900 shadow-[4px_4px_0_#1e293b] transition-[transform,box-shadow] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0_#1e293b]"
+                        >
+                          ▶ SERVE
+                        </button>
+                        <button
+                          onClick={() => handleServeChoice("receive")}
+                          className="flex-1 rounded-xl border-[3px] border-slate-900 bg-white py-3 font-pixel text-[9px] text-slate-800 shadow-[4px_4px_0_#1e293b] transition-[transform,box-shadow] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0_#1e293b]"
+                        >
+                          RECEIVE
+                        </button>
+                      </div>
+                    </>
+                  )}
+                  {matchPhase === "coin_result" && !playerWonCoin && (
+                    <p className="font-vt323 text-[1.2rem] text-slate-600">Starting match...</p>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Game over overlay ─────────────────────────────────────────── */}
         {gameState.gameOver && conn === "connected" && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-amber-50/85 backdrop-blur-sm">
             <div className="tama-card tama-card-yellow pixel-border max-w-md space-y-4 px-8 py-10 text-center">
@@ -487,11 +758,7 @@ export default function AIRallyPage() {
                 {gameState.playerScore} — {gameState.aiScore}
               </p>
               <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
-                <Button
-                  onClick={resetGame}
-                  size="lg"
-                  className="font-pixel text-[9px]"
-                >
+                <Button onClick={resetGame} size="lg" className="font-pixel text-[9px]">
                   <RotateCcw className="mr-2 h-4 w-4" />
                   PLAY AGAIN
                 </Button>

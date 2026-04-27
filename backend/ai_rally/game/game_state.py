@@ -90,7 +90,7 @@ def _ai_miss_split(difficulty: str) -> tuple[float, float]:
 
 
 def _court_x_bounds(by: float) -> tuple[float, float]:
-    “””Left/right boundary at ball y following the exact trapezoid sideline.”””
+    """Left/right boundary at ball y using the exact trapezoid sideline."""
     cy = max(TOP_LEFT[1], min(BOT_LEFT[1], by))
     lx, rx = row_xs(cy)
     # Ball center must be at least BALL_R inside the line (ball edge at line = out)
@@ -139,11 +139,50 @@ class GameState:
         self._ai_weak_return = False
         self._prev_stroke_state = "READY"  # tracks stroke transitions to avoid stale returns
 
-        self._serve(toward_player=True)
+        # Pre-match: wait for serve decision before any ball motion
+        self._pre_match = True
+        self._waiting_player_serve = False
+        # Ball parked at centre; _serve() called by start_ai_serve / start_player_serve_wait
 
     @property
     def player_cx(self) -> float:
         return self.player_x + PADDLE_W / 2
+
+    # ── Serve control (coin-flip flow) ──────────────────────────────────
+
+    def start_ai_serve(self) -> None:
+        """Coin flip resolved: AI serves. Call once at match start."""
+        self._pre_match = False
+        self._serve(toward_player=True)
+
+    def start_player_serve_wait(self) -> None:
+        """Coin flip resolved: player will serve. Ball parks at player side."""
+        self._pre_match = False
+        self._waiting_player_serve = True
+        self.bx = float(COURT_W // 2)
+        self.by = float(COURT_H * 0.80)
+        self.bdx = 0.0
+        self.bdy = 0.0
+        self.last_hit_by = "player"
+
+    def execute_player_serve(self, quality: float, wrist_dx: float = 0.0) -> None:
+        """Launch the player's serve. quality 0.0 (weak) – 1.0 (ace)."""
+        if not self._waiting_player_serve:
+            return
+        self._waiting_player_serve = False
+        self.last_hit_by = "player"
+        self.rally += 1
+        serve_speed = BALL_SPEED_INIT * (0.65 + 0.50 * max(0.0, min(1.0, quality)))
+        self.ball_speed = min(serve_speed, BALL_SPEED_CAP)
+        self.bdy = -self.ball_speed  # toward AI
+        if abs(wrist_dx) > 0.01:
+            self.bdx = self._swing_to_bdx(wrist_dx)
+        else:
+            self.bdx = random.choice([-1.0, 1.0]) * random.uniform(0.6, 1.2)
+        self._clamp_bdx()
+        self._ai_volley_committed = False
+        self._player_swing_fired_this_pass = False
+        self._ai_weak_return = False
 
     def _expected_shot(self) -> str | None:
         """Which stroke the game requires for the current ball position."""
@@ -220,6 +259,9 @@ class GameState:
     def update(self, stroke_state: str, *, wrist_dx: float = 0.0,
                wrist_speed: float = 0.5):
         if self.game_over:
+            return
+        if self._pre_match or self._waiting_player_serve:
+            self._tick_swings_in_pause()
             return
 
         self._prev_by_before_update = self.by

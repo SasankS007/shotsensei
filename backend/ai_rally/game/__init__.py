@@ -21,6 +21,15 @@ class GameEngine:
     def reset(self):
         self.state = GameState(difficulty=self._difficulty)
 
+    def start_ai_serve(self):
+        self.state.start_ai_serve()
+
+    def start_player_serve_wait(self):
+        self.state.start_player_serve_wait()
+
+    def execute_player_serve(self, quality: float, wrist_dx: float = 0.0):
+        self.state.execute_player_serve(quality, wrist_dx)
+
     def set_difficulty(self, level: str):
         level = level.lower()
         if level in ("easy", "medium", "hard"):
@@ -56,3 +65,7 @@ class GameEngine:
     def net_flash_active(self): return self.state.net_flash_frames > 0
     @property
     def difficulty(self): return self._difficulty
+    @property
+    def pre_match(self): return self.state._pre_match
+    @property
+    def waiting_player_serve(self): return self.state._waiting_player_serve

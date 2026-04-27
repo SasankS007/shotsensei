@@ -62,6 +62,8 @@ async def _stream(ws, game: GameEngine):
             clf = cv_engine.classifier
             fo = clf.frame_output
 
+            game._last_wrist_dx = fo.get("wrist_dx", 0.0)
+
             game.update(
                 stroke,
                 stroke_score=fo.get("score", 0),
@@ -92,6 +94,7 @@ async def _stream(ws, game: GameEngine):
                     "strokeScore": fo.get("score", 0),
                     "returnProbability": fo.get("return_probability", 0),
                     "difficulty": game.difficulty,
+                    "preMatch": game.pre_match,
                 })
             )
 
@@ -126,6 +129,14 @@ async def _handler(ws):
             elif action == "set_difficulty":
                 level = msg.get("level", "easy")
                 game.set_difficulty(level)
+            elif action == "match_start":
+                game.start_ai_serve()
+            elif action == "player_serve_mode":
+                game.start_player_serve_wait()
+            elif action == "serve_execute":
+                quality = float(msg.get("quality", 0.5))
+                wrist_dx = getattr(game, "_last_wrist_dx", 0.0)
+                game.execute_player_serve(quality, wrist_dx)
 
     listener = asyncio.create_task(_listen())
 
