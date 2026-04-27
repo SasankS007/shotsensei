@@ -248,8 +248,10 @@ export class BrowserGameState {
     this.bx += this.bdx * persp;
     this.by += this.bdy * persp;
 
-    // Sideline OOB — only for player shots going toward AI
-    if (this.bdy < 0 && this.lastHitBy === "player") {
+    // Sideline OOB — check every frame for player-hit balls.
+    // Tracks the exact diagonal trapezoid lines (rowXs at current by).
+    // Skip if ball is above or below the court area (handled by baseline scoring).
+    if (this.lastHitBy === "player" && this.by > TOP_LEFT[1] && this.by < BOT_LEFT[1]) {
       const [lx, rx] = courtXBounds(this.by);
       if (this.bx < lx || this.bx > rx) {
         this.outFlashFrames = OUT_FLASH_DURATION;
