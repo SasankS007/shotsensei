@@ -161,12 +161,13 @@ export default function BrowserArena({ difficulty, onExit }: Props) {
           }, 900);
         }
 
-        // Update game state
-        if (matchPhaseRef.current === "playing") {
-          game.update(detector.strokeState, detector.wristDx, detector.wristSpeed);
-        } else {
-          game.update("READY");
-        }
+        // Update game state — always pass live stroke/wrist data
+        // (game ignores stroke in non-playing phases via _preMatch / pause guards)
+        game.update(
+          matchPhaseRef.current === "playing" ? detector.strokeState : "READY",
+          detector.wristDx,
+          Math.min(1, detector.wristSpeed * 140), // normalise: ~0.007 fast → ~1.0
+        );
       }
 
       // Draw court

@@ -147,7 +147,8 @@ export class BrowserGameState {
     this._waitingPlayerServe = false;
     this.lastHitBy = "player";
     this.rally++;
-    const speed = BALL_SPEED_INIT * (0.65 + 0.50 * Math.max(0, Math.min(1, quality)));
+    // Green zone (quality≈1) → ACE speed (cap), red zone (quality≈0) → weak serve
+    const speed = 4.0 + 6.0 * Math.max(0, Math.min(1, quality));
     this.ballSpeed = Math.min(speed, BALL_SPEED_CAP);
     this.bdy = -this.ballSpeed;
     this.bdx = Math.abs(wristDx) > 0.01
@@ -241,8 +242,11 @@ export class BrowserGameState {
     if (this.outFlashFrames > 0) this.outFlashFrames--;
     this._tickSwings();
 
-    this.bx += this.bdx;
-    this.by += this.bdy;
+    // Perspective scaling: ball moves slower near AI (top/far), faster near player (bottom/close)
+    const perspT = Math.max(0, Math.min(1, (this.by - MARGIN_TOP) / Math.max(COURT_H - MARGIN_TOP, 1)));
+    const persp = 0.55 + 0.9 * perspT;
+    this.bx += this.bdx * persp;
+    this.by += this.bdy * persp;
 
     // Sideline OOB — only for player shots going toward AI
     if (this.bdy < 0 && this.lastHitBy === "player") {
