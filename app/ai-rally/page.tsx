@@ -22,6 +22,40 @@ import {
   playUiClick,
 } from "@/lib/tamagotchiAudio";
 
+// ── Tutorial steps ─────────────────────────────────────────────────────
+const TUTORIAL_STEPS = [
+  {
+    icon: "🎮",
+    title: "WELCOME TO RALLY ARENA",
+    body: "Battle the CPU in a live webcam tennis rally. Your real arm swings control the ball — forehand, backhand, and serves. First to 11 points wins. Earn trophies for your profile!",
+  },
+  {
+    icon: "🤚",
+    title: "HOW TO SWING",
+    body: "Stand in front of your webcam with your arm visible. Swing RIGHT for a forehand, swing LEFT for a backhand. The game reads which side the ball is on and expects the matching stroke. A full follow-through is required — light flicks won't register.",
+  },
+  {
+    icon: "🪙",
+    title: "COIN TOSS",
+    body: "Every match starts with a coin toss. Pick Heads or Tails. Win the toss and you choose to Serve first or Receive. Lose it and the CPU serves.",
+  },
+  {
+    icon: "⚡",
+    title: "SERVE METER",
+    body: "If you choose to serve, a timing bar appears. A cursor slides left → right → left across RED / YELLOW / GREEN zones. Make a full swing when the cursor is in the GREEN zone for an ACE. Yellow = good serve. Red = weak serve. Timing matters!",
+  },
+  {
+    icon: "🏆",
+    title: "SCORING & RALLIES",
+    body: "Miss a return and the CPU scores. CPU misses and you score. The point pause shows NET if it hit the net. After each point the CPU serves — unless you won the coin toss and chose to serve. Rally count resets each point. Win 11 points to win the match.",
+  },
+  {
+    icon: "🥇",
+    title: "TROPHIES",
+    body: "Win a VS AI match to earn a trophy saved to your account:\n🥉 BRONZE — beat Easy CPU\n🥈 SILVER — beat Medium CPU\n🥇 GOLD — beat Hard CPU\n🏅 ARENA — coming soon (real multiplayer matches)\n\nTrophies appear on your Profile page.",
+  },
+] as const;
+
 const WS_URL = "ws://localhost:8765";
 
 type ConnState = "disconnected" | "connecting" | "connected" | "error";
@@ -64,6 +98,23 @@ export default function AIRallyPage() {
   const wsRef = useRef<WebSocket | null>(null);
   const recordedGameRef = useRef(false);
   const recordArenaMatch = useAppStore((s) => s.recordArenaMatch);
+  const trophyTiers = useAppStore((s) => s.trophyTiers);
+
+  // ── Tutorial ──────────────────────────────────────────────────────────
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && !localStorage.getItem("arena-tutorial-seen")) {
+      setShowTutorial(true);
+    }
+  }, []);
+
+  const closeTutorial = () => {
+    localStorage.setItem("arena-tutorial-seen", "1");
+    setShowTutorial(false);
+    setTutorialStep(0);
+  };
 
   const [conn, setConn] = useState<ConnState>("disconnected");
   const [gameState, setGameState] = useState<GameState>({
@@ -426,9 +477,17 @@ export default function AIRallyPage() {
           <h1 className="mt-2 font-pixel text-[clamp(1.25rem,4vw,2rem)] leading-tight text-slate-800">
             RALLY ARENA
           </h1>
-          <p className="mt-2 font-vt323 text-[1.75rem] leading-tight text-[#4a5d3a]">
-            Webcam swing vs CPU — first to 11. Miss a return and concede the point. Rallies tuned for every difficulty.
-          </p>
+          <div className="mt-2 flex items-start justify-between gap-3">
+            <p className="font-vt323 text-[1.75rem] leading-tight text-[#4a5d3a]">
+              Webcam swing vs CPU — first to 11. Miss a return and concede the point. Rallies tuned for every difficulty.
+            </p>
+            <button
+              onClick={() => { setTutorialStep(0); setShowTutorial(true); void playUiClick(); }}
+              className="shrink-0 flex items-center gap-1.5 rounded-xl border-[2px] border-slate-800 bg-[#fde047] px-3 py-2 font-pixel text-[8px] text-slate-800 shadow-[3px_3px_0_#1e293b] transition-[transform,box-shadow] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[1px_1px_0_#1e293b]"
+            >
+              ? HOW TO PLAY
+            </button>
+          </div>
 
           <div className="mt-6 pixel-border bg-gradient-to-br from-amber-50 to-lime-50/80 px-4 py-4 shadow-[5px_5px_0_0_#ca8a04] sm:px-6 sm:py-5">
             <p className="font-pixel text-[8px] tracking-wide text-[#4a5d3a]">
@@ -757,6 +816,27 @@ export default function AIRallyPage() {
               <p className="font-vt323 text-[2rem] text-[#2e4a1e]">
                 {gameState.playerScore} — {gameState.aiScore}
               </p>
+
+              {/* Trophy earned badge */}
+              {gameState.winner === "Player" && (() => {
+                const tier = difficulty === "hard" ? { emoji: "🥇", label: "GOLD", color: "#ca8a04" }
+                  : difficulty === "medium" ? { emoji: "🥈", label: "SILVER", color: "#6b7280" }
+                  : { emoji: "🥉", label: "BRONZE", color: "#92400e" };
+                const total = difficulty === "hard" ? trophyTiers.gold
+                  : difficulty === "medium" ? trophyTiers.silver
+                  : trophyTiers.bronze;
+                return (
+                  <div className="flex items-center justify-center gap-3 rounded-xl border-[3px] border-slate-900 bg-white px-5 py-3 shadow-[3px_3px_0_#1e293b]">
+                    <span className="text-4xl">{tier.emoji}</span>
+                    <div className="text-left">
+                      <p className="font-pixel text-[8px]" style={{ color: tier.color }}>TROPHY EARNED</p>
+                      <p className="font-vt323 text-[1.5rem] text-slate-900">{tier.label} TROPHY</p>
+                      <p className="font-pixel text-[7px] text-slate-500">You now have {total} {tier.label.toLowerCase()}</p>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
                 <Button onClick={resetGame} size="lg" className="font-pixel text-[9px]">
                   <RotateCcw className="mr-2 h-4 w-4" />
@@ -771,6 +851,73 @@ export default function AIRallyPage() {
                   <LogOut className="mr-2 h-4 w-4" />
                   END GAME
                 </Button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* ── Tutorial modal ────────────────────────────────────────────── */}
+        {showTutorial && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
+            <div className="flex flex-col w-full max-w-sm rounded-[2rem] border-[6px] border-slate-900 bg-[#fde047] shadow-[14px_14px_0_#1e293b] overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 pt-5 pb-3">
+                <p className="font-pixel text-[8px] text-slate-600 tracking-widest">
+                  HOW TO PLAY · {tutorialStep + 1}/{TUTORIAL_STEPS.length}
+                </p>
+                <button
+                  onClick={closeTutorial}
+                  className="font-pixel text-[9px] text-slate-500 hover:text-slate-800"
+                >
+                  ✕ SKIP
+                </button>
+              </div>
+
+              {/* Step content */}
+              <div className="flex flex-col items-center gap-3 px-6 pb-6 text-center min-h-[280px] justify-center">
+                <span className="text-5xl">{TUTORIAL_STEPS[tutorialStep].icon}</span>
+                <p className="font-pixel text-[10px] text-slate-800 leading-relaxed">
+                  {TUTORIAL_STEPS[tutorialStep].title}
+                </p>
+                <p className="font-vt323 text-[1.25rem] leading-snug text-[#306230] whitespace-pre-line">
+                  {TUTORIAL_STEPS[tutorialStep].body}
+                </p>
+              </div>
+
+              {/* Dot indicators */}
+              <div className="flex justify-center gap-2 pb-3">
+                {TUTORIAL_STEPS.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setTutorialStep(i)}
+                    className={`h-2 rounded-full transition-all ${i === tutorialStep ? "w-6 bg-slate-800" : "w-2 bg-slate-400"}`}
+                  />
+                ))}
+              </div>
+
+              {/* Nav buttons */}
+              <div className="flex gap-0 border-t-[4px] border-slate-900">
+                <button
+                  onClick={() => setTutorialStep((s) => Math.max(0, s - 1))}
+                  disabled={tutorialStep === 0}
+                  className="flex-1 py-3 font-pixel text-[8px] text-slate-700 border-r-[4px] border-slate-900 disabled:opacity-30 hover:bg-amber-100 transition-colors"
+                >
+                  ← BACK
+                </button>
+                {tutorialStep < TUTORIAL_STEPS.length - 1 ? (
+                  <button
+                    onClick={() => setTutorialStep((s) => s + 1)}
+                    className="flex-1 py-3 font-pixel text-[8px] text-slate-800 hover:bg-amber-100 transition-colors"
+                  >
+                    NEXT →
+                  </button>
+                ) : (
+                  <button
+                    onClick={closeTutorial}
+                    className="flex-1 py-3 font-pixel text-[9px] text-[#306230] bg-[#9bbc0f] hover:bg-green-400 transition-colors"
+                  >
+                    LET&apos;S PLAY! ▶
+                  </button>
+                )}
               </div>
             </div>
           </div>

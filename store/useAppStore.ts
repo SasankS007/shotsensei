@@ -39,12 +39,24 @@ export interface ArenaDifficultyStats {
   losses: number;
 }
 
+export interface TrophyTiers {
+  /** Easy AI wins → bronze */
+  bronze: number;
+  /** Medium AI wins → silver */
+  silver: number;
+  /** Hard AI wins → gold */
+  gold: number;
+  /** Multiplayer wins → arena trophy (coming soon, always 0 for now) */
+  arena: number;
+}
+
 interface AppState {
   currentMode: AppMode;
   selectedStroke: StrokeType;
   sessionHistory: SessionEntry[];
-  /** Total arena wins — each win adds a trophy stack unit. */
+  /** Total AI arena wins across all difficulties. */
   trophyCount: number;
+  trophyTiers: TrophyTiers;
   arenaStats: Record<ArenaDifficulty, ArenaDifficultyStats>;
   dojoSaves: DojoStrokeSave[];
   arenaMatches: ArenaMatchSave[];
@@ -89,6 +101,7 @@ export const useAppStore = create<AppState>()(
       selectedStroke: "forehand",
       sessionHistory: [],
       trophyCount: 0,
+      trophyTiers: { bronze: 0, silver: 0, gold: 0, arena: 0 },
       arenaStats: emptyArenaStats(),
       dojoSaves: [],
       arenaMatches: [],
@@ -138,6 +151,7 @@ export const useAppStore = create<AppState>()(
         set({
           sessionHistory: [],
           trophyCount: 0,
+          trophyTiers: { bronze: 0, silver: 0, gold: 0, arena: 0 },
           arenaStats: emptyArenaStats(),
           dojoSaves: [],
           arenaMatches: [],
@@ -147,6 +161,7 @@ export const useAppStore = create<AppState>()(
         const id = `arena-${Date.now()}`;
         const date = formatDate();
         const trophyEarned = won;
+        const tierKey = difficulty === "hard" ? "gold" : difficulty === "medium" ? "silver" : "bronze";
         set((state) => {
           const arenaStats = { ...state.arenaStats };
           const cur = arenaStats[difficulty] ?? { wins: 0, losses: 0 };
@@ -166,6 +181,9 @@ export const useAppStore = create<AppState>()(
           return {
             arenaStats,
             trophyCount: state.trophyCount + (trophyEarned ? 1 : 0),
+            trophyTiers: trophyEarned
+              ? { ...state.trophyTiers, [tierKey]: state.trophyTiers[tierKey] + 1 }
+              : state.trophyTiers,
             arenaMatches: [row, ...state.arenaMatches].slice(0, 40),
           };
         });
@@ -256,11 +274,19 @@ export const useAppStore = create<AppState>()(
           .slice(0, 50)
           .map(({ isoDate: _isoDate, ...entry }) => entry);
 
+        const earned = arenaMatches.filter((m) => m.trophyEarned);
+        const trophyTiers: TrophyTiers = { bronze: 0, silver: 0, gold: 0, arena: 0 };
+        for (const m of earned) {
+          if (m.difficulty === "hard") trophyTiers.gold++;
+          else if (m.difficulty === "medium") trophyTiers.silver++;
+          else trophyTiers.bronze++;
+        }
         set({
           dojoSaves,
           arenaMatches,
           arenaStats,
-          trophyCount: arenaMatches.filter((m) => m.trophyEarned).length,
+          trophyCount: earned.length,
+          trophyTiers,
           sessionHistory,
         });
       },
@@ -270,6 +296,7 @@ export const useAppStore = create<AppState>()(
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
         trophyCount: s.trophyCount,
+        trophyTiers: s.trophyTiers,
         arenaStats: s.arenaStats,
         dojoSaves: s.dojoSaves,
         arenaMatches: s.arenaMatches,

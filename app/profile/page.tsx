@@ -14,6 +14,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const arenaStats = useAppStore((s) => s.arenaStats);
   const trophyCount = useAppStore((s) => s.trophyCount);
+  const trophyTiers = useAppStore((s) => s.trophyTiers);
   const arenaMatches = useAppStore((s) => s.arenaMatches);
   const dojoSaves = useAppStore((s) => s.dojoSaves);
 
@@ -88,6 +89,32 @@ export default function ProfilePage() {
           <StatCard icon={<Swords className="h-5 w-5 text-red-500" />} label="WIN %" value={`${winPct}%`} />
           <StatCard icon={<Target className="h-5 w-5 text-green-600" />} label="AVG DOJO" value={avgDojoScore} />
           <StatCard icon={<Swords className="h-5 w-5 text-blue-500" />} label="MATCHES" value={totalGames} />
+        </div>
+
+        {/* Trophy tiers */}
+        <div className="rounded-[1.5rem] border-[5px] border-slate-900 bg-[#fde047] p-4 shadow-[6px_6px_0_#1e293b]">
+          <p className="mb-3 font-pixel text-[7px] text-slate-700">TROPHY CASE</p>
+          <div className="space-y-2">
+            {([
+              { emoji: "🥇", label: "GOLD", sub: "Hard CPU wins", count: trophyTiers.gold, locked: false },
+              { emoji: "🥈", label: "SILVER", sub: "Medium CPU wins", count: trophyTiers.silver, locked: false },
+              { emoji: "🥉", label: "BRONZE", sub: "Easy CPU wins", count: trophyTiers.bronze, locked: false },
+              { emoji: "🏅", label: "ARENA", sub: "Multiplayer — coming soon", count: trophyTiers.arena, locked: true },
+            ]).map(({ emoji, label, sub, count, locked }) => (
+              <div key={label} className={`flex items-center justify-between rounded-lg border-[2px] border-slate-800 px-3 py-2 ${locked ? "bg-slate-200/60 opacity-60" : "bg-white/80"}`}>
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">{emoji}</span>
+                  <div>
+                    <p className="font-pixel text-[8px] text-slate-800">{label}</p>
+                    <p className="font-pixel text-[6px] text-slate-500">{sub}</p>
+                  </div>
+                </div>
+                <span className="font-vt323 text-2xl text-slate-800">
+                  {locked ? "🔒" : count}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Per-difficulty */}
